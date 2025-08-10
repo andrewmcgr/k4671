@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tmc4671 = { path = "tmc4671" }
 # Change stm32f429zi to your chip name, if necessary.
 embassy-stm32 = { version = "0.2.0", features = ["defmt", "stm32f407vg", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono"] }
 embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }

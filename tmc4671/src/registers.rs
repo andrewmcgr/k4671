@@ -1,12 +1,24 @@
 use embedded_interfaces::codegen::interface_objects;
 
-
-pub type TMC4671I2cCodec = embedded_interfaces::registers::i2c::codecs::unsupported_codec::UnsupportedCodec<()>;
+pub type TMC4671I2cCodec =
+    embedded_interfaces::registers::i2c::codecs::unsupported_codec::UnsupportedCodec<()>;
 pub type TMC4671SpiCodec =
-    embedded_interfaces::registers::spi::codecs::standard_codec::StandardCodec<1, 6, 0, 7, false, 0>;
-
+    embedded_interfaces::registers::spi::codecs::standard_codec::StandardCodec<
+        1,
+        6,
+        0,
+        7,
+        false,
+        0,
+    >;
 
 interface_objects! {
+  register_defaults {
+      codec_error = (),
+      i2c_codec = TMC4671I2cCodec,
+      spi_codec = TMC4671SpiCodec,
+  }
+
   register ChipinfoData(addr = 0x0, mode = rw, size=4) {
     ChipinfoData: u32,
   }
@@ -18,6 +30,7 @@ interface_objects! {
     3 ChipinfoSiTime,
     4 ChipinfoSiVariant,
     5 ChipinfoSiBuild,
+    _ Invalid(u32),
   }
 
   register ChipinfoAddr(addr = 0x1, mode = rw, size=4) {
@@ -57,6 +70,7 @@ interface_objects! {
     1 AdcAgpiARawAdcVmRaw,
     2 AdcAencUxRawAdcAgpiBRaw,
     3 AdcAencWyRawAdcAencVnRaw,
+    _ Invalid(u32),
   }
 
   register AdcRawAddr(addr = 0x3, mode = rw, size=4) {
@@ -414,6 +428,7 @@ interface_objects! {
     60 ConfigSinglePinIfStatusCfg,
     61 ConfigSinglePinIfScaleOffset,
     62 ConfigAdvancedPiRepresent,
+    _ Invalid(u32),
   }
 
   register ConfigAddr(addr = 0x4e, mode = rw, size=4) {
@@ -665,6 +680,7 @@ interface_objects! {
     5 PidErrorPidFluxErrorSum,
     6 PidErrorPidVelocityErrorSum,
     7 PidErrorPidPositionErrorSum,
+    _ Invalid(u32),
   }
 
   register PidErrorAddr(addr = 0x6d, mode = rw, size=4) {
@@ -745,6 +761,7 @@ interface_objects! {
     42 InterimSinglePinIfPwmDutyCycleTorqueTarget,
     43 InterimSinglePinIfVelocityTarget,
     44 InterimSinglePinIfPositionTarget,
+    _ Invalid(u32),
   }
 
   register InterimAddr(addr = 0x6f, mode = rw, size=4) {

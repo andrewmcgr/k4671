@@ -8,6 +8,7 @@ use embassy_stm32::spi::{Config, Spi, MODE_3};
 use embassy_stm32::time::Hertz;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+use tmc4671;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
