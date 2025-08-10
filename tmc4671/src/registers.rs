@@ -76,7 +76,7 @@ interface_objects! {
   }
 
   register AdcRawAddr(addr = 0x3, mode = rw, size=4) {
-    value: u32,
+    value: AdcRaw = AdcRaw::AdcI1RawAdcI0Raw,
   }
 
   register AdcI1RawAdcI0Raw(addr = 0x2, mode = rw, size=4) {
@@ -451,7 +451,7 @@ interface_objects! {
   }
 
   register ConfigAddr(addr = 0x4e, mode = rw, size=4) {
-    value: u32,
+    value: Config = Config::ConfigBiquadXA1,
   }
 
   register ConfigBiquadXA1(addr = 0x4d, mode = rw, size=4) {
@@ -706,7 +706,7 @@ interface_objects! {
   }
 
   register PidErrorAddr(addr = 0x6d, mode = rw, size=4) {
-    value: u32,
+    value: PidError = PidError::PidErrorPidTorqueError,
   }
 
   register PidErrorPidTorqueError(addr = 0x6c, mode = rw, size=4) {
@@ -787,7 +787,7 @@ interface_objects! {
   }
 
   register InterimAddr(addr = 0x6f, mode = rw, size=4) {
-    value: u32,
+    value: Interim = Interim::InterimPidinTargetTorque,
   }
 
   register InterimPidinTargetTorque(addr = 0x6e, mode = rw, size=4) {
