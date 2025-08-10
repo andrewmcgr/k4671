@@ -502,11 +502,14 @@ dependencies = [
 name = "tmc4671"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
+ "defmt",
  "embedded-devices-derive",
  "embedded-hal",
  "embedded-hal-async",
  "embedded-interfaces",
  "maybe-async-cfg",
+ "thiserror",
 ]
 
 [[package]]

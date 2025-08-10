@@ -9,9 +9,12 @@ embedded-interfaces = { git = "https://github.com/oddlama/embedded-devices", ver
 maybe-async-cfg = "0.2.5"
 embedded-hal = "1.0.0"
 embedded-hal-async = { version = "1.0.0", optional = true }
+defmt = "1.0.1"
+bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics"] }
+thiserror = { version = "2.0.12", default-features = false }
 
 [features]
-default = ["sync", "async"]
+default = ["async"]
 
 sync = []
 async = ["dep:embedded-hal-async"]
