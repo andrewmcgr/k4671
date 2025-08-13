@@ -12,6 +12,8 @@ pub type TMC4671SpiCodec =
         0,
     >;
 
+pub const DEVICE_ID_VALID: u32 = 0x34363731;
+
 interface_objects! {
   register_defaults {
       codec_error = (),

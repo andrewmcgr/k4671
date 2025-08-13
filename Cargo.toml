@@ -6,15 +6,14 @@ edition = "2024"
 [dependencies]
 tmc4671 = { path = "tmc4671" }
 # Change stm32f429zi to your chip name, if necessary.
-embassy-stm32 = { version = "0.2.0", features = ["defmt", "stm32f407vg", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono"] }
-embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-#embassy-usb = { version = "0.5.0", features = ["defmt" ] }
-#embassy-futures = { version = "0.1.0" }
-embassy-sync = { version = "0.7.0" }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "stm32f407vg", "unstable-pac", "memory-x", "time-driver-tim3", "exti", "chrono"] }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt" ] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
-
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
@@ -31,7 +30,11 @@ micromath = "2.0.0"
 usbd-hid = "0.8.1"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false}
-embassy-embedded-hal = "0.4.0"
+assign-resources = "0.5.0"
+anchor = { git = "https://github.com/Annex-Engineering/anchor.git" }
+
+[build-dependencies]
+anchor_codegen = { git = "https://github.com/Annex-Engineering/anchor.git" }
 
 [profile.release]
 debug = 2

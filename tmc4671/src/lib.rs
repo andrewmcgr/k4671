@@ -1,5 +1,8 @@
 #![no_std]
 use embedded_devices_derive::forward_register_fns;
+use embedded_interfaces::registers::{
+    ReadableRegister, Register, RegisterInterfaceAsync, WritableRegister,
+};
 use embedded_interfaces::TransportError;
 use registers::*;
 
@@ -22,17 +25,22 @@ pub enum FaultDetectionError<BusError> {
 ///
 /// For a full description and usage examples, refer to the [module documentation](self).
 #[maybe_async_cfg::maybe(
-    idents(hal(sync = "embedded_hal", async = "embedded_hal_async"), RegisterInterface),
+    idents(
+        hal(sync = "embedded_hal", async = "embedded_hal_async"),
+        RegisterInterface
+    ),
     sync(feature = "sync"),
     async(feature = "async")
 )]
-pub struct TMC4671<D: hal::delay::DelayNs, I: embedded_interfaces::registers::RegisterInterfaceAsync> {
+pub struct TMC4671<
+    D: hal::delay::DelayNs,
+    I: embedded_interfaces::registers::RegisterInterfaceAsync,
+> {
     /// The delay provider
     delay: D,
     /// The interface to communicate with the device
     interface: I,
 }
-
 
 #[maybe_async_cfg::maybe(
     idents(hal(sync = "embedded_hal", async = "embedded_hal_async"), SpiDevice),
@@ -65,17 +73,22 @@ pub trait TMC4671Register {}
     sync(feature = "sync"),
     async(feature = "async")
 )]
-impl<D: hal::delay::DelayNs, I: embedded_interfaces::registers::RegisterInterfaceAsync> TMC4671<D, I> {
+impl<D: hal::delay::DelayNs, I: embedded_interfaces::registers::RegisterInterfaceAsync>
+    TMC4671<D, I>
+{
+
     //// Detect a device
     pub async fn init(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
-        self.write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType)).await?;
+        self.write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
+            .await?;
         let res = self.read_register::<ChipinfoData>().await?;
-        if res.read_value() == 0x34363731 {
+        if res.read_value() == registers::DEVICE_ID_VALID {
             return Ok(());
         } else {
             return Err(FaultDetectionError::FaultDetected);
         }
     }
+
 }
 
 #[cfg(test)]
