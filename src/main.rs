@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config, spi, Peri};
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config, spi, Peri, uid};
 use embassy_time::{Delay, Timer};
 use embassy_executor::Spawner;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -58,9 +58,9 @@ async fn usb_serial(r: UsbResources) {
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("Embassy");
-    config.product = Some("USB-serial example");
-    config.serial_number = Some("12345678");
+    config.manufacturer = Some("k4671");
+    config.product = Some("K4671 Motor Driver");
+    config.serial_number = Some(uid::uid_hex());
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
