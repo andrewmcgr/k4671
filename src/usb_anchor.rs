@@ -82,7 +82,7 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbAnchor<N, T> {
         D: Driver<'d>,
         Self: 'd,
     {
-        let mut config = Config::new(0xc0de, 0xcafe);
+        let mut config = Config::new(0x1209, 0x4671);
         config.manufacturer = Some("k4671");
         config.product = Some("K4671 Motor Driver");
         config.serial_number = Some(uid::uid_hex());
