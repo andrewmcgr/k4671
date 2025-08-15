@@ -9,13 +9,11 @@ use embassy_stm32::{bind_interrupts, peripherals, usb, Config, spi, Peri, uid};
 use embassy_time::{Delay, Timer};
 use embassy_executor::Spawner;
 use embedded_hal_bus::spi::ExclusiveDevice;
-use embassy_stm32::usb::{Driver, Instance};
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
-use embassy_usb::driver::EndpointError;
-use embassy_usb::{UsbDevice, Builder};
+use embassy_stm32::usb::Driver;
 use tmc4671;
 use {defmt_rtt as _, panic_probe as _};
 use assign_resources::assign_resources;
+mod usb_anchor;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -42,8 +40,9 @@ assign_resources! {
     }
 }
 
-async fn usb_serial(r: UsbResources) {
-        // Create the driver, from the HAL.
+#[embassy_executor::task]
+async fn usb_comms(r: UsbResources) {
+    // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
     let mut config = embassy_stm32::usb::Config::default();
 
@@ -54,74 +53,10 @@ async fn usb_serial(r: UsbResources) {
     config.vbus_detection = true;
 
     let driver = Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
+    let mut state = usb_anchor::AnchorState::new();
 
-
-    // Create embassy-usb Config
-    let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("k4671");
-    config.product = Some("K4671 Motor Driver");
-    config.serial_number = Some(uid::uid_hex());
-
-    // Create embassy-usb DeviceBuilder using the driver and config.
-    // It needs some buffers for building the descriptors.
-    let mut config_descriptor = [0; 256];
-    let mut bos_descriptor = [0; 256];
-    let mut control_buf = [0; 64];
-
-    let mut state = State::new();
-
-    let mut builder = Builder::new(
-        driver,
-        config,
-        &mut config_descriptor,
-        &mut bos_descriptor,
-        &mut [], // no msos descriptors
-        &mut control_buf,
-    );
-
-    // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
-
-    // Build the builder.
-    let mut usb = builder.build();
-
-        // Run the USB device.
-    let usb_fut = usb.run();
-
-    // Do stuff with the class!
-    let echo_fut = async {
-        loop {
-            class.wait_connection().await;
-            info!("Connected");
-            let _ = echo(&mut class).await;
-            info!("Disconnected");
-        }
-    };
-
-
-    // Run the USB device.
-    join(usb_fut, echo_fut).await;
-}
-
-struct Disconnected {}
-
-impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
-            EndpointError::BufferOverflow => crate::panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
-        }
-    }
-}
-
-async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
-    loop {
-        let n = class.read_packet(&mut buf).await?;
-        let data = &buf[..n];
-        info!("data: {:x}", data);
-        class.write_packet(data).await?;
-    }
+    let anchor: usb_anchor::UsbAnchor<1024, usb_anchor::DummyHandler> = usb_anchor::UsbAnchor::new();
+    anchor.run(&mut state, driver).await;
 }
 
 #[embassy_executor::task]
@@ -188,5 +123,5 @@ async fn main(spawner: Spawner) {
 
     spawner.must_spawn(tmc_task(r.tmc));
     spawner.must_spawn(blink(r.led));
-    usb_serial(r.usb).await;
+    spawner.must_spawn(usb_comms(r.usb));
 }
