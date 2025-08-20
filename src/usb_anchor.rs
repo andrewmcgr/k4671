@@ -1,35 +1,12 @@
-#![no_std]
-
-use core::fmt::Write as _;
-use core::future::Future;
-
 use embassy_futures::join::join;
-use embassy_sync::pipe::Pipe;
+use embassy_stm32::uid;
+use embassy_sync::pipe::{Pipe, Reader, Writer};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, Config};
-use embassy_stm32::uid;
 
-type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-
-/// A trait that can be implemented and then passed to the
-pub trait ReceiverHandler {
-    /// Data comes in from the serial port with each command and runs this function
-    fn handle_data(&self, data: &[u8]) -> impl Future<Output = ()> + Send;
-
-    /// Create a new instance of the Handler
-    fn new() -> Self;
-}
-
-/// Use this Handler if you don't wish to use any handler
-pub struct DummyHandler;
-
-impl ReceiverHandler for DummyHandler {
-    async fn handle_data(&self, _data: &[u8]) {}
-    fn new() -> Self {
-        Self {}
-    }
-}
+pub const ANCHOR_PIPE_SIZE: usize = 1024;
+pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 /// The anchor state containing buffers that must live as long as the USB peripheral.
 pub struct AnchorState<'d> {
@@ -57,27 +34,24 @@ impl<'d> AnchorState<'d> {
 pub const MAX_PACKET_SIZE: u8 = 64;
 
 /// The anchor handle, which contains a pipe with configurable size for buffering log messages.
-pub struct UsbAnchor<const N: usize, T: ReceiverHandler + Send + Sync> {
-    buffer: Pipe<CS, N>,
-    recieve_handler: Option<T>,
+pub struct UsbAnchor {
+    out_pipe: Pipe<CS, ANCHOR_PIPE_SIZE>,
+    in_pipe: Pipe<CS, ANCHOR_PIPE_SIZE>,
 }
 
-impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbAnchor<N, T> {
+impl UsbAnchor {
     /// Create a new anchor instance.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        let out_pipe: Pipe<CS, ANCHOR_PIPE_SIZE> = Pipe::new();
+        let in_pipe: Pipe<CS, ANCHOR_PIPE_SIZE> = Pipe::new();
         Self {
-            buffer: Pipe::new(),
-            recieve_handler: None,
+            out_pipe: out_pipe,
+            in_pipe: in_pipe,
         }
     }
 
-    /// Add a command handler to the anchor
-    pub fn with_handler(&mut self, handler: T) {
-        self.recieve_handler = Some(handler);
-    }
-
     /// Run the USB anchor using the state and USB driver. Never returns.
-    pub async fn run<'d, D>(&'d self, state: &'d mut AnchorState<'d>, driver: D) -> !
+    pub async fn run<'d, D>(&'d mut self, state: &'d mut AnchorState<'d>, driver: D) -> !
     where
         D: Driver<'d>,
         Self: 'd,
@@ -111,15 +85,18 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbAnchor<N, T> {
         }
     }
 
-    async fn run_anchor_class<'d, D>(&self, sender: &mut Sender<'d, D>, receiver: &mut Receiver<'d, D>)
-    where
+    async fn run_anchor_class<'d, D>(
+        &mut self,
+        sender: &mut Sender<'d, D>,
+        receiver: &mut Receiver<'d, D>,
+    ) where
         D: Driver<'d>,
     {
         let out_fut = async {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             sender.wait_connection().await;
             loop {
-                let len = self.buffer.read(&mut rx[..]).await;
+                let len = self.out_pipe.read(&mut rx[..]).await;
                 let _ = sender.write_packet(&rx[..len]).await;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
@@ -130,26 +107,19 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbAnchor<N, T> {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             receiver.wait_connection().await;
             loop {
-                let n = receiver.read_packet(&mut reciever_buf).await.unwrap();
-                match &self.recieve_handler {
-                    Some(handler) => {
-                        let data = &reciever_buf[..n];
-                        handler.handle_data(data).await;
-                    }
-                    None => (),
-                }
+                let _ = receiver.read_packet(&mut reciever_buf).await.unwrap();
+                self.out_pipe.write_all(&mut reciever_buf[..]).await;
             }
         };
 
         join(out_fut, reciever_fut).await;
     }
-
 }
 
-/// A writer that writes to the USB anchor output buffer.
-pub struct Writer<'d, const N: usize>(&'d Pipe<CS, N>);
+/// A writer that writes to the USB buffer.
+pub struct PipeWriter<'d, const N: usize>(&'d Pipe<CS, N>);
 
-impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
+impl<'d, const N: usize> core::fmt::Write for PipeWriter<'d, N> {
     fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
         // The Pipe is implemented in such way that we cannot
         // write across the wraparound discontinuity.
@@ -165,3 +135,4 @@ impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
         Ok(())
     }
 }
+
