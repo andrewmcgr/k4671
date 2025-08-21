@@ -12,7 +12,7 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
 use embassy_sync::mutex;
 use embassy_sync::pipe::{Pipe, Reader, Writer};
-use embassy_time::{Delay, Timer};
+use embassy_time::{Delay, Timer, TICK_HZ, Instant};
 use embedded_hal_bus::spi::ExclusiveDevice;
 
 use tmc4671;
@@ -43,6 +43,24 @@ assign_resources! {
         dplus: PA12,
         dminus: PA11,
     }
+}
+
+#[klipper_constant]
+const CLOCK_FREQ: u32 = 1_000_000;
+
+#[klipper_command]
+pub fn get_uptime(_context: &mut crate::State) {
+    let c = Instant::now().as_ticks();
+    klipper_reply!(
+        uptime,
+        high: u32 = (c >> 32) as u32,
+        clock: u32 = (c & 0xFFFF_FFFF) as u32
+    );
+}
+
+#[klipper_command]
+pub fn get_clock(_context: &mut crate::State) {
+    klipper_reply!(clock, clock: u32 = (Instant::now().as_ticks() & 0xFFFF_FFFF) as u32);
 }
 
 pub struct State {
