@@ -5,6 +5,7 @@ use assign_resources::assign_resources;
 use core::cell::RefCell;
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
@@ -50,18 +51,11 @@ pub struct State {
 
 impl State {
     pub fn new() -> Self {
-        Self {
-            config_crc: None,
-        }
+        Self { config_crc: None }
     }
 }
 
-const ANCHOR_PIPE_SIZE: usize = 1024;
-type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-type Mutex<T> = embassy_sync::blocking_mutex::Mutex<CS, T>;
-
-pub static USB_TX_BUFFER: Mutex<RefCell<FifoBuffer<{ ANCHOR_PIPE_SIZE }>>> =
-    Mutex::new(RefCell::new(FifoBuffer::new()));
+pub static USB_OUT_BUFFER: usb_anchor::AnchorPipe = usb_anchor::AnchorPipe::new();
 
 pub(crate) struct BufferTransportOutput;
 
@@ -71,7 +65,12 @@ impl TransportOutput for BufferTransportOutput {
         let mut scratch = ScratchOutput::new();
         f(&mut scratch);
         let output = scratch.result();
-        critical_section::with(|cs| USB_TX_BUFFER.borrow(cs).borrow_mut().extend(output));
+        if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
+            if n < output.len() {
+                // Retry, possible a ring buffer wrap
+                let _ = USB_OUT_BUFFER.try_write(&output[n..]);
+            }
+        }
     }
 }
 
@@ -82,10 +81,9 @@ klipper_config_generate!(
   context = &'ctx mut crate::State,
 );
 
-type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
-#[embassy_executor::task]
-async fn anchor_protocol(pipe: Pipe<CS, { ANCHOR_PIPE_SIZE }>) {
+async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
+    type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
     let mut receiver_buf: RxBuf = RxBuf::new();
     loop {
         let _ = pipe.read(receiver_buf.receive_buffer()).await;
@@ -112,9 +110,12 @@ async fn usb_comms(r: UsbResources) {
 
     let driver = Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
+    let in_pipe = usb_anchor::AnchorPipe::new();
 
-    let mut anchor: usb_anchor::UsbAnchor = usb_anchor::UsbAnchor::new();
-    anchor.run(&mut state, driver).await;
+    let mut anchor = usb_anchor::UsbAnchor::new();
+    let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
+    let anchor_protocol_fut = anchor_protocol(&in_pipe);
+    join(anchor_fut, anchor_protocol_fut).await;
 }
 
 #[embassy_executor::task]

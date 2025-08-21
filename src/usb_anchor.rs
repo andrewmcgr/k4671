@@ -8,6 +8,8 @@ use embassy_usb::{Builder, Config};
 pub const ANCHOR_PIPE_SIZE: usize = 1024;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
+pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
+
 /// The anchor state containing buffers that must live as long as the USB peripheral.
 pub struct AnchorState<'d> {
     state: State<'d>,
@@ -34,24 +36,22 @@ impl<'d> AnchorState<'d> {
 pub const MAX_PACKET_SIZE: u8 = 64;
 
 /// The anchor handle, which contains a pipe with configurable size for buffering log messages.
-pub struct UsbAnchor {
-    out_pipe: Pipe<CS, ANCHOR_PIPE_SIZE>,
-    in_pipe: Pipe<CS, ANCHOR_PIPE_SIZE>,
-}
+pub struct UsbAnchor {}
 
 impl UsbAnchor {
     /// Create a new anchor instance.
     pub fn new() -> Self {
-        let out_pipe: Pipe<CS, ANCHOR_PIPE_SIZE> = Pipe::new();
-        let in_pipe: Pipe<CS, ANCHOR_PIPE_SIZE> = Pipe::new();
-        Self {
-            out_pipe: out_pipe,
-            in_pipe: in_pipe,
-        }
+        Self {}
     }
 
     /// Run the USB anchor using the state and USB driver. Never returns.
-    pub async fn run<'d, D>(&'d mut self, state: &'d mut AnchorState<'d>, driver: D) -> !
+    pub async fn run<'d, D>(
+        &'d mut self,
+        state: &'d mut AnchorState<'d>,
+        in_pipe: &'d AnchorPipe,
+        out_pipe: &'d AnchorPipe,
+        driver: D,
+    ) -> !
     where
         D: Driver<'d>,
         Self: 'd,
@@ -80,13 +80,15 @@ impl UsbAnchor {
         let mut device = builder.build();
         loop {
             let run_fut = device.run();
-            let class_fut = self.run_anchor_class(&mut sender, &mut receiver);
+            let class_fut = self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver);
             join(run_fut, class_fut).await;
         }
     }
 
     async fn run_anchor_class<'d, D>(
         &mut self,
+        in_pipe: &'d AnchorPipe,
+        out_pipe: &'d AnchorPipe,
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,
     ) where
@@ -96,7 +98,7 @@ impl UsbAnchor {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             sender.wait_connection().await;
             loop {
-                let len = self.out_pipe.read(&mut rx[..]).await;
+                let len = out_pipe.read(&mut rx[..]).await;
                 let _ = sender.write_packet(&rx[..len]).await;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
@@ -108,7 +110,7 @@ impl UsbAnchor {
             receiver.wait_connection().await;
             loop {
                 let _ = receiver.read_packet(&mut reciever_buf).await.unwrap();
-                self.out_pipe.write_all(&mut reciever_buf[..]).await;
+                in_pipe.write_all(&mut reciever_buf[..]).await;
             }
         };
 
@@ -135,4 +137,3 @@ impl<'d, const N: usize> core::fmt::Write for PipeWriter<'d, N> {
         Ok(())
     }
 }
-
