@@ -48,6 +48,7 @@ const CLOCK_FREQ: u32 = 1_000_000;
 #[klipper_command]
 pub fn get_uptime(_context: &mut crate::State) {
     let c = Instant::now().as_ticks();
+    debug!("uptime");
     klipper_reply!(
         uptime,
         high: u32 = (c >> 32) as u32,
@@ -56,8 +57,9 @@ pub fn get_uptime(_context: &mut crate::State) {
 }
 
 #[klipper_command]
-pub fn get_clock(_context: &mut crate::State) {
+pub fn get_clock() {
     klipper_reply!(clock, clock: u32 = (Instant::now().as_ticks() & 0xFFFF_FFFF) as u32);
+    debug!("clock");
 }
 
 #[klipper_command]
@@ -66,6 +68,7 @@ pub fn emergency_stop() {}
 #[klipper_command]
 pub fn get_config(context: &State) {
     let crc = context.config_crc;
+    debug!("get_config");
     klipper_reply!(
         config,
         is_config: bool = crc.is_some(),
@@ -77,11 +80,13 @@ pub fn get_config(context: &State) {
 
 #[klipper_command]
 pub fn config_reset(context: &mut State) {
+    debug!("config_reset");
     context.config_crc = None;
 }
 
 #[klipper_command]
 pub fn finalize_config(context: &mut State, crc: u32) {
+    debug!("finalize_config");
     context.config_crc = Some(crc);
 }
 
@@ -112,6 +117,7 @@ impl TransportOutput for BufferTransportOutput {
     type Output = ScratchOutput;
     fn output(&self, f: impl FnOnce(&mut Self::Output)) {
         let mut scratch = ScratchOutput::new();
+        debug!("Output from Anchor!");
         f(&mut scratch);
         let output = scratch.result();
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
@@ -134,11 +140,15 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
     let mut receiver_buf: RxBuf = RxBuf::new();
+    let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] = [0; usb_anchor::MAX_PACKET_SIZE as usize];
     loop {
-        let _ = pipe.read(receiver_buf.receive_buffer()).await;
+        let n = pipe.read(&mut rx).await;
+        receiver_buf.extend(&rx[..n]);
+        debug!("Pipe read for Anchor!");
         let recv_data = receiver_buf.data();
         if !recv_data.is_empty() {
             let mut wrap = SliceInputBuffer::new(recv_data);
+            debug!("Data for Anchor!");
             KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
             let consumed = recv_data.len() - wrap.available();
             if consumed > 0 {
