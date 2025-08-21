@@ -63,6 +63,40 @@ pub fn get_clock(_context: &mut crate::State) {
     klipper_reply!(clock, clock: u32 = (Instant::now().as_ticks() & 0xFFFF_FFFF) as u32);
 }
 
+#[klipper_command]
+pub fn emergency_stop() {}
+
+#[klipper_command]
+pub fn get_config(context: &State) {
+    let crc = context.config_crc;
+    klipper_reply!(
+        config,
+        is_config: bool = crc.is_some(),
+        crc: u32 = crc.unwrap_or(0),
+        is_shutdown: bool = false,
+        move_count: u16 = 0
+    );
+}
+
+#[klipper_command]
+pub fn config_reset(context: &mut State) {
+    context.config_crc = None;
+}
+
+#[klipper_command]
+pub fn finalize_config(context: &mut State, crc: u32) {
+    context.config_crc = Some(crc);
+}
+
+#[klipper_command]
+pub fn allocate_oids(_count: u8) {}
+
+#[klipper_constant]
+const MCU: &str = "k4671_openffboard";
+
+#[klipper_constant]
+const STATS_SUMSQ_BASE: u32 = 256;
+
 pub struct State {
     config_crc: Option<u32>,
 }
