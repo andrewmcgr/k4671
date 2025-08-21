@@ -1,6 +1,6 @@
 use embassy_futures::join::join;
 use embassy_stm32::uid;
-use embassy_sync::pipe::{Pipe, Reader, Writer};
+use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, Config};

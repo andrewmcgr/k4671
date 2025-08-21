@@ -2,7 +2,6 @@
 #![no_main]
 
 use assign_resources::assign_resources;
-use core::cell::RefCell;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
@@ -10,9 +9,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
-use embassy_sync::mutex;
-use embassy_sync::pipe::{Pipe, Reader, Writer};
-use embassy_time::{Delay, Timer, TICK_HZ, Instant};
+use embassy_time::{Delay, Timer, Instant};
 use embedded_hal_bus::spi::ExclusiveDevice;
 
 use tmc4671;
