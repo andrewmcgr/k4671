@@ -644,18 +644,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embedded-hal-bus"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d3980bf28e8577db59fe2bdb3df868a419469d2cecb363644eea2b6f7797669"
-dependencies = [
- "critical-section",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
- "portable-atomic",
-]
-
-[[package]]
 name = "embedded-hal-nb"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -839,14 +827,13 @@ dependencies = [
  "critical-section",
  "defmt 1.0.1",
  "defmt-rtt",
+ "embassy-embedded-hal",
  "embassy-executor",
  "embassy-futures",
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
  "embassy-usb",
- "embedded-hal 0.2.7",
- "embedded-hal-bus",
  "embedded-io",
  "embedded-io-async",
  "embedded-storage",
@@ -1337,11 +1324,11 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "defmt 1.0.1",
+ "embassy-embedded-hal",
+ "embassy-sync",
  "embedded-devices-derive",
- "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-interfaces",
- "maybe-async-cfg",
  "thiserror",
 ]
 

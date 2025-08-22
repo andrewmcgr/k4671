@@ -5,12 +5,13 @@ use assign_resources::assign_resources;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_sync::Mutex;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
 use embassy_time::{Delay, Timer, Instant};
-use embedded_hal_bus::spi::ExclusiveDevice;
+use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 
 use tmc4671;
 use {defmt_rtt as _, panic_probe as _};
@@ -41,6 +42,21 @@ assign_resources! {
         dminus: PA11,
     }
 }
+
+klipper_enumeration!(
+    enum spi_bus {
+        spi1,
+    }
+);
+
+klipper_enumeration!(
+    enum pin {
+        spi1_cs,
+    }
+);
+
+#[klipper_constant]
+const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_constant]
 const CLOCK_FREQ: u32 = 1_000_000;
@@ -98,6 +114,41 @@ const MCU: &str = "k4671_openffboard";
 
 #[klipper_constant]
 const STATS_SUMSQ_BASE: u32 = 256;
+
+#[klipper_command]
+pub fn config_spi_shutdown(
+    _context: &mut State,
+    _oid: u8,
+    _spi_oid: u8,
+    _shutdown_msg: &[u8]
+) {}
+
+#[klipper_command]
+pub fn spi_transfer(context: &mut State, oid: u8, data: &[u8]) {
+}
+
+#[klipper_command]
+pub fn spi_send(context: &mut State, _oid: u8, data: &[u8]) {
+}
+#[klipper_command]
+pub fn config_spi(_context: &mut State, _oid: u8, _pin: u32, _cs_active_high: u8) {}
+
+#[klipper_command]
+pub fn config_spi_without_cs(_context: &mut State, _oid: u8) {}
+
+#[klipper_command]
+pub fn spi_set_bus(
+    _context: &mut State,
+    _oid: u8,
+    _spi_bus: u32,
+    _mode: u32,
+    _rate: u32
+) {}
+
+#[klipper_command]
+pub fn reset() {
+    cortex_m::peripheral::SCB::sys_reset();
+}
 
 pub struct State {
     config_crc: Option<u32>,
@@ -199,9 +250,10 @@ async fn tmc_task(r: TmcResources) {
     spi_config.frequency = Hertz(1_000_000);
 
     let spi = spi::Spi::new(r.spi, r.clk, r.mosi, r.miso, r.dma_a, r.dma_b, spi_config);
+    let spi_bus: Mutex<usb_anchor::CS, spi::Spi> = Mutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
-    let spi = unwrap!(ExclusiveDevice::new(spi, cs, Delay));
-    let mut tmc = tmc4671::TMC4671Async::new_spi(Delay, spi);
+    let spi_dev = tmc4671::SpiDevice::new(SpiDevice::new(spi_bus, cs));
+    let mut tmc = tmc4671::TMC4671::new_spi(spi_dev);
     let mut errled = Output::new(r.errled, Level::High, Speed::Low);
     errled.set_high();
     Timer::after_millis(300).await;
@@ -210,6 +262,7 @@ async fn tmc_task(r: TmcResources) {
         Ok(_) => errled.set_low(),
         Err(_) => errled.set_high(),
     }
+    tmc.run().await;
 }
 
 #[embassy_executor::main]

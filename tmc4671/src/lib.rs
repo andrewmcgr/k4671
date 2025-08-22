@@ -1,12 +1,32 @@
 #![no_std]
 use embedded_devices_derive::forward_register_fns;
-use embedded_interfaces::registers::{
-    ReadableRegister, Register, RegisterInterfaceAsync, WritableRegister,
-};
+use embedded_interfaces::registers::RegisterInterfaceAsync;
 use embedded_interfaces::TransportError;
+pub use embedded_interfaces::spi::SpiDeviceAsync;
 use registers::*;
 
+use embassy_sync::{channel, pubsub};
+pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use embedded_hal_async::spi;
+
+pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;
+pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
+
 pub mod registers;
+
+#[derive(Debug, defmt::Format, Copy, Clone)]
+pub enum TMCCommand {
+    Enable,
+    Disable,
+    SpiSend([u8; 5]),
+    SpiTransfer([u8; 5]),
+}
+
+#[derive(Debug, defmt::Format, Copy, Clone)]
+pub enum TMCCommandResponse {
+    SpiResponse([u8; 5]),
+}
 
 #[derive(Debug, defmt::Format, thiserror::Error)]
 pub enum FaultDetectionError<BusError> {
@@ -24,43 +44,29 @@ pub enum FaultDetectionError<BusError> {
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
 ///
 /// For a full description and usage examples, refer to the [module documentation](self).
-#[maybe_async_cfg::maybe(
-    idents(
-        hal(sync = "embedded_hal", async = "embedded_hal_async"),
-        RegisterInterface
-    ),
-    sync(feature = "sync"),
-    async(feature = "async")
-)]
 pub struct TMC4671<
-    D: hal::delay::DelayNs,
     I: embedded_interfaces::registers::RegisterInterfaceAsync,
 > {
-    /// The delay provider
-    delay: D,
     /// The interface to communicate with the device
     interface: I,
+    command_channel: TMCCommandChannel,
+    response_channel: TMCResponseBus,
 }
 
-#[maybe_async_cfg::maybe(
-    idents(hal(sync = "embedded_hal", async = "embedded_hal_async"), SpiDevice),
-    sync(feature = "sync"),
-    async(feature = "async")
-)]
-impl<D, I> TMC4671<D, embedded_interfaces::spi::SpiDevice<I>>
+impl<I> TMC4671<embedded_interfaces::spi::SpiDeviceAsync<I>>
 where
-    I: hal::spi::r#SpiDevice,
-    D: hal::delay::DelayNs,
+    I: spi::SpiDevice,
 {
     /// Initializes a new device from the specified SPI device.
     /// This consumes the SPI device `I`.
     ///
     /// The device supports SPI mode 3.
     #[inline]
-    pub fn new_spi(delay: D, interface: I) -> Self {
+    pub fn new_spi(interface: I) -> Self {
         Self {
-            delay,
-            interface: embedded_interfaces::spi::SpiDevice::new(interface),
+            interface: embedded_interfaces::spi::SpiDeviceAsync::new(interface),
+            command_channel: TMCCommandChannel::new(),
+            response_channel: TMCResponseBus::new(),
         }
     }
 }
@@ -68,15 +74,10 @@ where
 pub trait TMC4671Register {}
 
 #[forward_register_fns]
-#[maybe_async_cfg::maybe(
-    idents(hal(sync = "embedded_hal", async = "embedded_hal_async"), SpiDevice),
-    sync(feature = "sync"),
-    async(feature = "async")
-)]
-impl<D: hal::delay::DelayNs, I: embedded_interfaces::registers::RegisterInterfaceAsync>
-    TMC4671<D, I>
+impl<I> TMC4671<I>
+where
+    I: spi::SpiDevice + RegisterInterfaceAsync,
 {
-
     //// Detect a device
     pub async fn init(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
         self.write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
@@ -89,6 +90,26 @@ impl<D: hal::delay::DelayNs, I: embedded_interfaces::registers::RegisterInterfac
         }
     }
 
+    // Run device. Never returns.
+    pub async fn run(&mut self) -> ! {
+        let command_receiver = self.command_channel.receiver();
+        let publisher = self.response_channel.publisher().unwrap();
+        loop {
+            match command_receiver.receive().await {
+                TMCCommand::Enable => (),
+                TMCCommand::Disable => (),
+                TMCCommand::SpiSend(data) => {
+                    let _ = self.interface.write(&data).await;
+                }
+                TMCCommand::SpiTransfer(data) => {
+                    let mut resp: [u8; 5] = [0; 5];
+                    if self.interface.transfer(&mut resp, &data).await.is_ok() {
+                        publisher.publish_immediate(TMCCommandResponse::SpiResponse(resp));
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
