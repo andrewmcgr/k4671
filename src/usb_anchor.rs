@@ -1,4 +1,5 @@
 use embassy_futures::join::join;
+use embassy_sync::mutex::Mutex;
 use embassy_stm32::uid;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
@@ -9,6 +10,7 @@ pub const ANCHOR_PIPE_SIZE: usize = 1024;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
+pub type AnchorMutex<T> = Mutex<CS, T>;
 
 /// The anchor state containing buffers that must live as long as the USB peripheral.
 pub struct AnchorState<'d> {

@@ -5,12 +5,12 @@ use assign_resources::assign_resources;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_sync::Mutex;
+use embassy_sync::{mutex::Mutex, watch::Watch};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
-use embassy_time::{Delay, Timer, Instant};
+use embassy_time::{Timer, Instant};
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 
 use tmc4671;
@@ -187,6 +187,7 @@ klipper_config_generate!(
   context = &'ctx mut crate::State,
 );
 
+
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
@@ -250,9 +251,10 @@ async fn tmc_task(r: TmcResources) {
     spi_config.frequency = Hertz(1_000_000);
 
     let spi = spi::Spi::new(r.spi, r.clk, r.mosi, r.miso, r.dma_a, r.dma_b, spi_config);
-    let spi_bus: Mutex<usb_anchor::CS, spi::Spi> = Mutex::new(spi);
+    let spi_bus = usb_anchor::AnchorMutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
-    let spi_dev = tmc4671::SpiDevice::new(SpiDevice::new(spi_bus, cs));
+    let spi_dev = SpiDevice::new(&spi_bus, cs);
+    // let spi_dev = tmc4671::SpiDevice::new(&spi_bus, spi_dev);
     let mut tmc = tmc4671::TMC4671::new_spi(spi_dev);
     let mut errled = Output::new(r.errled, Level::High, Speed::Low);
     errled.set_high();

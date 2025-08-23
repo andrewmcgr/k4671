@@ -1,17 +1,19 @@
 #![no_std]
-use embedded_devices_derive::forward_register_fns;
 use embedded_interfaces::registers::RegisterInterfaceAsync;
-use embedded_interfaces::TransportError;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
+use embedded_interfaces::TransportError;
 use registers::*;
 
-use embassy_sync::{channel, pubsub};
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embedded_hal_async::spi;
+use embassy_sync::{channel, pubsub};
+pub use embedded_hal_async::spi;
+// pub use embedded_hal_async::spi::{Operation, SpiDevice};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;
+pub type TMCCommandSender<'a> = channel::SendDynamicSender<'a, TMCCommand>;
 pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
+pub type TMCResponseReceiver<'a> = channel::SendDynamicReceiver<'a, TMCCommand>;
 
 pub mod registers;
 
@@ -44,27 +46,28 @@ pub enum FaultDetectionError<BusError> {
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
 ///
 /// For a full description and usage examples, refer to the [module documentation](self).
-pub struct TMC4671<
-    I: embedded_interfaces::registers::RegisterInterfaceAsync,
-> {
+pub struct TMC4671<I>
+where
+    I: embedded_hal_async::spi::SpiDevice,
+{
     /// The interface to communicate with the device
-    interface: I,
-    command_channel: TMCCommandChannel,
-    response_channel: TMCResponseBus,
+    interface: embedded_interfaces::spi::SpiDeviceAsync<I>,
+    pub command_channel: TMCCommandChannel,
+    pub response_channel: TMCResponseBus,
 }
 
-impl<I> TMC4671<embedded_interfaces::spi::SpiDeviceAsync<I>>
+impl<I> TMC4671<I>
 where
-    I: spi::SpiDevice,
+    I: embedded_hal_async::spi::SpiDevice,
 {
     /// Initializes a new device from the specified SPI device.
     /// This consumes the SPI device `I`.
     ///
     /// The device supports SPI mode 3.
     #[inline]
-    pub fn new_spi(interface: I) -> Self {
+    pub fn new_spi(spi: I) -> Self {
         Self {
-            interface: embedded_interfaces::spi::SpiDeviceAsync::new(interface),
+            interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
             command_channel: TMCCommandChannel::new(),
             response_channel: TMCResponseBus::new(),
         }
@@ -73,16 +76,23 @@ where
 
 pub trait TMC4671Register {}
 
-#[forward_register_fns]
+
 impl<I> TMC4671<I>
 where
-    I: spi::SpiDevice + RegisterInterfaceAsync,
+    I: embedded_hal_async::spi::SpiDevice,
 {
     //// Detect a device
-    pub async fn init(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
-        self.write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
+    pub async fn init(
+        &mut self,
+    ) -> Result<
+        (),
+        FaultDetectionError<
+            <embedded_interfaces::spi::SpiDeviceAsync<I> as RegisterInterfaceAsync>::BusError,
+        >,
+    > {
+        self.interface.write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
             .await?;
-        let res = self.read_register::<ChipinfoData>().await?;
+        let res = self.interface.read_register::<ChipinfoData>().await?;
         if res.read_value() == registers::DEVICE_ID_VALID {
             return Ok(());
         } else {
@@ -99,11 +109,11 @@ where
                 TMCCommand::Enable => (),
                 TMCCommand::Disable => (),
                 TMCCommand::SpiSend(data) => {
-                    let _ = self.interface.write(&data).await;
+                    let _ = self.interface.interface.write(&data).await;
                 }
                 TMCCommand::SpiTransfer(data) => {
                     let mut resp: [u8; 5] = [0; 5];
-                    if self.interface.transfer(&mut resp, &data).await.is_ok() {
+                    if self.interface.interface.transfer(&mut resp, &data).await.is_ok() {
                         publisher.publish_immediate(TMCCommandResponse::SpiResponse(resp));
                     }
                 }
