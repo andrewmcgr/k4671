@@ -2,16 +2,21 @@
 #![no_main]
 
 use assign_resources::assign_resources;
+use cortex_m_rt::entry;
 use defmt::*;
+use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
-use embassy_sync::{mutex::Mutex, watch::Watch};
+use embassy_executor::{Executor, InterruptExecutor};
+use embassy_futures::{block_on, join::join};
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
-use embassy_time::{Timer, Instant};
-use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use embassy_sync::{mutex::Mutex, watch::Watch};
+use embassy_time::{Instant, Timer};
+use static_cell::StaticCell;
 
 use tmc4671;
 use {defmt_rtt as _, panic_probe as _};
@@ -116,20 +121,14 @@ const MCU: &str = "k4671_openffboard";
 const STATS_SUMSQ_BASE: u32 = 256;
 
 #[klipper_command]
-pub fn config_spi_shutdown(
-    _context: &mut State,
-    _oid: u8,
-    _spi_oid: u8,
-    _shutdown_msg: &[u8]
-) {}
+pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
 
 #[klipper_command]
-pub fn spi_transfer(context: &mut State, oid: u8, data: &[u8]) {
-}
+pub fn spi_transfer(context: &mut State, oid: u8, data: &[u8]) {}
 
 #[klipper_command]
-pub fn spi_send(context: &mut State, _oid: u8, data: &[u8]) {
-}
+pub fn spi_send(context: &mut State, _oid: u8, data: &[u8]) {}
+
 #[klipper_command]
 pub fn config_spi(_context: &mut State, _oid: u8, _pin: u32, _cs_active_high: u8) {}
 
@@ -137,13 +136,7 @@ pub fn config_spi(_context: &mut State, _oid: u8, _pin: u32, _cs_active_high: u8
 pub fn config_spi_without_cs(_context: &mut State, _oid: u8) {}
 
 #[klipper_command]
-pub fn spi_set_bus(
-    _context: &mut State,
-    _oid: u8,
-    _spi_bus: u32,
-    _mode: u32,
-    _rate: u32
-) {}
+pub fn spi_set_bus(_context: &mut State, _oid: u8, _spi_bus: u32, _mode: u32, _rate: u32) {}
 
 #[klipper_command]
 pub fn reset() {
@@ -187,12 +180,15 @@ klipper_config_generate!(
   context = &'ctx mut crate::State,
 );
 
+pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
+pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
     let mut receiver_buf: RxBuf = RxBuf::new();
-    let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] = [0; usb_anchor::MAX_PACKET_SIZE as usize];
+    let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
+        [0; usb_anchor::MAX_PACKET_SIZE as usize];
     loop {
         let n = pipe.read(&mut rx).await;
         receiver_buf.extend(&rx[..n]);
@@ -254,8 +250,11 @@ async fn tmc_task(r: TmcResources) {
     let spi_bus = usb_anchor::AnchorMutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
-    // let spi_dev = tmc4671::SpiDevice::new(&spi_bus, spi_dev);
-    let mut tmc = tmc4671::TMC4671::new_spi(spi_dev);
+    let mut tmc = tmc4671::TMC4671::new_spi(
+        spi_dev,
+        TMC_CMD.dyn_receiver(),
+        TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
+    );
     let mut errled = Output::new(r.errled, Level::High, Speed::Low);
     errled.set_high();
     Timer::after_millis(300).await;
@@ -267,8 +266,22 @@ async fn tmc_task(r: TmcResources) {
     tmc.run().await;
 }
 
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
+static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
+static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
+static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
+
+#[interrupt]
+unsafe fn UART4() {
+    EXECUTOR_HIGH.on_interrupt()
+}
+
+#[interrupt]
+unsafe fn UART5() {
+    EXECUTOR_MED.on_interrupt()
+}
+
+#[entry]
+fn main() -> ! {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -296,7 +309,24 @@ async fn main(spawner: Spawner) {
 
     info!("Hello World!");
 
-    spawner.must_spawn(tmc_task(r.tmc));
-    spawner.must_spawn(blink(r.led));
-    spawner.must_spawn(usb_comms(r.usb));
+    // STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
+    // by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
+    // In this case we’re using UART4 and UART5, but there’s nothing special about them. Any otherwise unused interrupt
+    // vector would work exactly the same.
+
+    // High-priority executor: UART4, priority level 6
+    interrupt::UART4.set_priority(Priority::P6);
+    let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
+    unwrap!(spawner.spawn(tmc_task(r.tmc)));
+
+    // Medium-priority executor: UART5, priority level 7
+    interrupt::UART5.set_priority(Priority::P7);
+    let spawner = EXECUTOR_MED.start(interrupt::UART5);
+    unwrap!(spawner.spawn(blink(r.led)));
+
+    // Low priority executor: runs in thread mode, using WFE/SEV
+    let executor = EXECUTOR_LOW.init(Executor::new());
+    executor.run(|spawner| {
+        unwrap!(spawner.spawn(usb_comms(r.usb)));
+    });
 }

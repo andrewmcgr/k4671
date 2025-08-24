@@ -11,9 +11,11 @@ pub use embedded_hal_async::spi;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;
-pub type TMCCommandSender<'a> = channel::SendDynamicSender<'a, TMCCommand>;
+pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
+pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
 pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
-pub type TMCResponseReceiver<'a> = channel::SendDynamicReceiver<'a, TMCCommand>;
+pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>;
+pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
 
 pub mod registers;
 
@@ -46,17 +48,17 @@ pub enum FaultDetectionError<BusError> {
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
 ///
 /// For a full description and usage examples, refer to the [module documentation](self).
-pub struct TMC4671<I>
+pub struct TMC4671<'a, I>
 where
     I: embedded_hal_async::spi::SpiDevice,
 {
     /// The interface to communicate with the device
     interface: embedded_interfaces::spi::SpiDeviceAsync<I>,
-    pub command_channel: TMCCommandChannel,
-    pub response_channel: TMCResponseBus,
+    command_rx: TMCCommandReceiver<'a>,
+    response_tx: TMCResponsePublisher<'a>,
 }
 
-impl<I> TMC4671<I>
+impl<'a, I> TMC4671<'a, I>
 where
     I: embedded_hal_async::spi::SpiDevice,
 {
@@ -65,11 +67,11 @@ where
     ///
     /// The device supports SPI mode 3.
     #[inline]
-    pub fn new_spi(spi: I) -> Self {
+    pub fn new_spi(spi: I, command_rx: TMCCommandReceiver<'a>, response_tx: TMCResponsePublisher<'a>) -> Self {
         Self {
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
-            command_channel: TMCCommandChannel::new(),
-            response_channel: TMCResponseBus::new(),
+            command_rx: command_rx,
+            response_tx: response_tx,
         }
     }
 }
@@ -77,7 +79,7 @@ where
 pub trait TMC4671Register {}
 
 
-impl<I> TMC4671<I>
+impl<'a, I> TMC4671<'a, I>
 where
     I: embedded_hal_async::spi::SpiDevice,
 {
@@ -102,10 +104,8 @@ where
 
     // Run device. Never returns.
     pub async fn run(&mut self) -> ! {
-        let command_receiver = self.command_channel.receiver();
-        let publisher = self.response_channel.publisher().unwrap();
         loop {
-            match command_receiver.receive().await {
+            match self.command_rx.receive().await {
                 TMCCommand::Enable => (),
                 TMCCommand::Disable => (),
                 TMCCommand::SpiSend(data) => {
@@ -114,7 +114,7 @@ where
                 TMCCommand::SpiTransfer(data) => {
                     let mut resp: [u8; 5] = [0; 5];
                     if self.interface.interface.transfer(&mut resp, &data).await.is_ok() {
-                        publisher.publish_immediate(TMCCommandResponse::SpiResponse(resp));
+                        self.response_tx.publish_immediate(TMCCommandResponse::SpiResponse(resp));
                     }
                 }
             }
