@@ -23,6 +23,8 @@ use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod spi_passthrough;
 mod usb_anchor;
+mod leds;
+use crate::leds::blink;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -156,54 +158,6 @@ pub enum LedState {
 }
 
 pub static LED_STATE: Signal<CS, LedState> = Signal::new();
-
-#[embassy_executor::task]
-async fn blink(r: LedResources) {
-    info!("Hello Blink!");
-    let mut led = Output::new(r.led, Level::High, Speed::Low);
-    let mut focled = Output::new(r.focled, Level::High, Speed::Low);
-    let mut errled = Output::new(r.errled, Level::High, Speed::Low);
-    let mut current = LedState::Error;
-    loop {
-        if let Some(newstate) = LED_STATE.try_take() {
-            current = newstate;
-        }
-        match current {
-            LedState::Error => {
-                led.set_low();
-                focled.set_low();
-                errled.set_high();
-            }
-            LedState::Waiting => {
-                led.set_high();
-                focled.set_low();
-                errled.set_low();
-                Timer::after_millis(300).await;
-                led.set_low();
-            }
-            LedState::Connecting => {
-                led.set_high();
-                focled.set_high();
-                errled.set_low();
-                Timer::after_millis(300).await;
-                led.set_low();
-                focled.set_low();
-            }
-            LedState::Connected => {
-                led.set_low();
-                focled.set_high();
-                errled.set_low();
-                Timer::after_millis(300).await;
-                led.set_low();
-                focled.set_low();
-            }
-        }
-        errled.set_low();
-        focled.set_low();
-        led.set_low();
-        Timer::after_millis(300).await;
-    }
-}
 
 #[embassy_executor::task]
 async fn tmc_task(r: TmcResources) {
