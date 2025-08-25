@@ -1,0 +1,73 @@
+use anchor::*;
+use defmt::*;
+
+use embassy_time::Instant;
+use crate::State;
+
+#[klipper_constant]
+const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
+
+#[klipper_constant]
+const CLOCK_FREQ: u32 = 1_000_000;
+
+#[klipper_command]
+pub fn get_uptime(_context: &mut crate::State) {
+    let c = Instant::now().as_ticks();
+    debug!("uptime");
+    klipper_reply!(
+        uptime,
+        high: u32 = (c >> 32) as u32,
+        clock: u32 = (c & 0xFFFF_FFFF) as u32
+    );
+}
+
+#[klipper_command]
+pub fn get_clock() {
+    klipper_reply!(clock, clock: u32 = (Instant::now().as_ticks() & 0xFFFF_FFFF) as u32);
+    debug!("clock");
+}
+
+#[klipper_command]
+pub fn emergency_stop() {}
+
+#[klipper_command]
+pub fn get_config(context: &State) {
+    let crc = context.config_crc;
+    debug!("get_config");
+    klipper_reply!(
+        config,
+        is_config: bool = crc.is_some(),
+        crc: u32 = crc.unwrap_or(0),
+        is_shutdown: bool = false,
+        move_count: u16 = 0
+    );
+}
+
+#[klipper_command]
+pub fn config_reset(context: &mut State) {
+    debug!("config_reset");
+    context.config_crc = None;
+}
+
+#[klipper_command]
+pub fn finalize_config(context: &mut State, crc: u32) {
+    debug!("finalize_config");
+    context.config_crc = Some(crc);
+}
+
+#[klipper_command]
+pub fn allocate_oids(_count: u8) {}
+
+#[klipper_constant]
+const MCU: &str = "k4671_openffboard";
+
+#[klipper_constant]
+const STATS_SUMSQ_BASE: u32 = 256;
+
+#[klipper_command]
+pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
+
+#[klipper_command]
+pub fn reset() {
+    cortex_m::peripheral::SCB::sys_reset();
+}

@@ -5,23 +5,23 @@ use assign_resources::assign_resources;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_executor::Spawner;
 use embassy_executor::{Executor, InterruptExecutor};
-use embassy_futures::{block_on, join::join};
+use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
-use embassy_sync::{mutex::Mutex, watch::Watch};
-use embassy_time::{Instant, Timer};
+use embassy_time::{Timer};
 use static_cell::StaticCell;
 
 use tmc4671;
 use {defmt_rtt as _, panic_probe as _};
-mod usb_anchor;
 use anchor::*;
+mod usb_anchor;
+mod spi_passthrough;
+mod commands;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -59,112 +59,6 @@ klipper_enumeration!(
         spi1_cs,
     }
 );
-
-#[klipper_constant]
-const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
-
-#[klipper_constant]
-const CLOCK_FREQ: u32 = 1_000_000;
-
-#[klipper_command]
-pub fn get_uptime(_context: &mut crate::State) {
-    let c = Instant::now().as_ticks();
-    debug!("uptime");
-    klipper_reply!(
-        uptime,
-        high: u32 = (c >> 32) as u32,
-        clock: u32 = (c & 0xFFFF_FFFF) as u32
-    );
-}
-
-#[klipper_command]
-pub fn get_clock() {
-    klipper_reply!(clock, clock: u32 = (Instant::now().as_ticks() & 0xFFFF_FFFF) as u32);
-    debug!("clock");
-}
-
-#[klipper_command]
-pub fn emergency_stop() {}
-
-#[klipper_command]
-pub fn get_config(context: &State) {
-    let crc = context.config_crc;
-    debug!("get_config");
-    klipper_reply!(
-        config,
-        is_config: bool = crc.is_some(),
-        crc: u32 = crc.unwrap_or(0),
-        is_shutdown: bool = false,
-        move_count: u16 = 0
-    );
-}
-
-#[klipper_command]
-pub fn config_reset(context: &mut State) {
-    debug!("config_reset");
-    context.config_crc = None;
-}
-
-#[klipper_command]
-pub fn finalize_config(context: &mut State, crc: u32) {
-    debug!("finalize_config");
-    context.config_crc = Some(crc);
-}
-
-#[klipper_command]
-pub fn allocate_oids(_count: u8) {}
-
-#[klipper_constant]
-const MCU: &str = "k4671_openffboard";
-
-#[klipper_constant]
-const STATS_SUMSQ_BASE: u32 = 256;
-
-#[klipper_command]
-pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
-
-#[klipper_command]
-pub fn spi_transfer(_context: &mut State, oid: u8, data: &[u8]) {
-    if let Ok(arr) = data.try_into() {
-        block_on(
-            TMC_CMD
-                .dyn_sender()
-                .send(tmc4671::TMCCommand::SpiTransfer(arr)),
-        );
-        let tmc4671::TMCCommandResponse::SpiResponse(r) = block_on(
-            TMC_RESP
-                .dyn_subscriber()
-                .expect("Should not happen")
-                .next_message_pure(),
-        );
-        klipper_reply!(spi_transfer_response, oid: u8 = oid, response: &[u8] = &r);
-    }
-}
-
-#[klipper_command]
-pub fn spi_send(_context: &mut State, _oid: u8, data: &[u8]) {
-    if let Ok(arr) = data.try_into() {
-        block_on(
-            TMC_CMD
-                .dyn_sender()
-                .send(tmc4671::TMCCommand::SpiTransfer(arr)),
-        );
-    }
-}
-
-#[klipper_command]
-pub fn config_spi(_context: &mut State, _oid: u8, _pin: u32, _cs_active_high: u8) {}
-
-#[klipper_command]
-pub fn config_spi_without_cs(_context: &mut State, _oid: u8) {}
-
-#[klipper_command]
-pub fn spi_set_bus(_context: &mut State, _oid: u8, _spi_bus: u32, _mode: u32, _rate: u32) {}
-
-#[klipper_command]
-pub fn reset() {
-    cortex_m::peripheral::SCB::sys_reset();
-}
 
 pub struct State {
     config_crc: Option<u32>,
