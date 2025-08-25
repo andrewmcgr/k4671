@@ -1,7 +1,7 @@
 #![no_std]
+use embedded_interfaces::TransportError;
 use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
-use embedded_interfaces::TransportError;
 use registers::*;
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
@@ -66,7 +66,11 @@ where
     ///
     /// The device supports SPI mode 3.
     #[inline]
-    pub fn new_spi(spi: I, command_rx: TMCCommandReceiver<'a>, response_tx: TMCResponsePublisher<'a>) -> Self {
+    pub fn new_spi(
+        spi: I,
+        command_rx: TMCCommandReceiver<'a>,
+        response_tx: TMCResponsePublisher<'a>,
+    ) -> Self {
         Self {
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
             command_rx: command_rx,
@@ -76,7 +80,6 @@ where
 }
 
 pub trait TMC4671Register {}
-
 
 impl<'a, I> TMC4671<'a, I>
 where
@@ -91,7 +94,8 @@ where
             <embedded_interfaces::spi::SpiDeviceAsync<I> as RegisterInterfaceAsync>::BusError,
         >,
     > {
-        self.interface.write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
+        self.interface
+            .write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
             .await?;
         let res = self.interface.read_register::<ChipinfoData>().await?;
         if res.read_value() == registers::DEVICE_ID_VALID {
@@ -112,8 +116,15 @@ where
                 }
                 TMCCommand::SpiTransfer(data) => {
                     let mut resp: [u8; 5] = [0; 5];
-                    if self.interface.interface.transfer(&mut resp, &data).await.is_ok() {
-                        self.response_tx.publish_immediate(TMCCommandResponse::SpiResponse(resp));
+                    if self
+                        .interface
+                        .interface
+                        .transfer(&mut resp, &data)
+                        .await
+                        .is_ok()
+                    {
+                        self.response_tx
+                            .publish_immediate(TMCCommandResponse::SpiResponse(resp));
                     }
                 }
             }

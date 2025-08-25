@@ -1,8 +1,8 @@
 use tmc4671;
 
-use embassy_futures::block_on;
 use crate::{State, TMC_CMD, TMC_RESP};
 use anchor::*;
+use embassy_futures::block_on;
 
 #[klipper_command]
 pub fn spi_transfer(_context: &mut State, oid: u8, data: &[u8]) {

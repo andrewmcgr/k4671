@@ -1,6 +1,8 @@
+use crate::LED_STATE;
+use crate::LedState::Connecting;
 use embassy_futures::join::join;
-use embassy_sync::mutex::Mutex;
 use embassy_stm32::uid;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
@@ -98,6 +100,7 @@ impl UsbAnchor {
     {
         let out_fut = async {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+            LED_STATE.signal(Connecting);
             sender.wait_connection().await;
             loop {
                 let len = out_pipe.read(&mut rx[..]).await;

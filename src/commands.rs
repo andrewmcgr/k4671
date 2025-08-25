@@ -1,10 +1,10 @@
 use anchor::*;
 use defmt::*;
 
-use embassy_time::Instant;
-use crate::State;
-use crate::LedState::{Connected, Connecting};
 use crate::LED_STATE;
+use crate::LedState::{Connected, Connecting};
+use crate::State;
+use embassy_time::Instant;
 
 #[klipper_constant]
 #[expect(non_upper_case_globals)]
@@ -32,7 +32,7 @@ pub fn get_clock() {
 
 #[klipper_command]
 pub fn emergency_stop() {
-        LED_STATE.signal(crate::LedState::Error);
+    LED_STATE.signal(crate::LedState::Error);
 }
 
 #[klipper_command]
