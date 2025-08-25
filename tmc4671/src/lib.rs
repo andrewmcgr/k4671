@@ -7,7 +7,6 @@ use registers::*;
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_sync::{channel, pubsub};
 pub use embedded_hal_async::spi;
-// pub use embedded_hal_async::spi::{Operation, SpiDevice};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;

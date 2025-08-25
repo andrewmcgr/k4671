@@ -121,6 +121,7 @@ impl UsbAnchor {
 }
 
 /// A writer that writes to the USB buffer.
+#[allow(dead_code)]
 pub struct PipeWriter<'d, const N: usize>(&'d Pipe<CS, N>);
 
 impl<'d, const N: usize> core::fmt::Write for PipeWriter<'d, N> {

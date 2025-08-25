@@ -5,6 +5,7 @@ use embassy_time::Instant;
 use crate::State;
 
 #[klipper_constant]
+#[expect(non_upper_case_globals)]
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_constant]

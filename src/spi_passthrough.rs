@@ -1,5 +1,4 @@
 use tmc4671;
-use defmt::*;
 
 use embassy_futures::block_on;
 use crate::{State, TMC_CMD, TMC_RESP};

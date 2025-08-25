@@ -49,13 +49,15 @@ assign_resources! {
 }
 
 klipper_enumeration!(
+#[expect(non_camel_case_types)]
     enum spi_bus {
         spi1,
     }
 );
 
 klipper_enumeration!(
-    enum pin {
+ #[expect(non_camel_case_types)]
+   enum pin {
         spi1_cs,
     }
 );
@@ -188,11 +190,13 @@ static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 #[interrupt]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn UART4() {
     EXECUTOR_HIGH.on_interrupt()
 }
 
 #[interrupt]
+#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn UART5() {
     EXECUTOR_MED.on_interrupt()
 }
