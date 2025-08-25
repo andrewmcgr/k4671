@@ -124,10 +124,33 @@ const STATS_SUMSQ_BASE: u32 = 256;
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
 
 #[klipper_command]
-pub fn spi_transfer(context: &mut State, oid: u8, data: &[u8]) {}
+pub fn spi_transfer(_context: &mut State, oid: u8, data: &[u8]) {
+    if let Ok(arr) = data.try_into() {
+        block_on(
+            TMC_CMD
+                .dyn_sender()
+                .send(tmc4671::TMCCommand::SpiTransfer(arr)),
+        );
+        let tmc4671::TMCCommandResponse::SpiResponse(r) = block_on(
+            TMC_RESP
+                .dyn_subscriber()
+                .expect("Should not happen")
+                .next_message_pure(),
+        );
+        klipper_reply!(spi_transfer_response, oid: u8 = oid, response: &[u8] = &r);
+    }
+}
 
 #[klipper_command]
-pub fn spi_send(context: &mut State, _oid: u8, data: &[u8]) {}
+pub fn spi_send(_context: &mut State, _oid: u8, data: &[u8]) {
+    if let Ok(arr) = data.try_into() {
+        block_on(
+            TMC_CMD
+                .dyn_sender()
+                .send(tmc4671::TMCCommand::SpiTransfer(arr)),
+        );
+    }
+}
 
 #[klipper_command]
 pub fn config_spi(_context: &mut State, _oid: u8, _pin: u32, _cs_active_high: u8) {}
@@ -161,7 +184,7 @@ impl TransportOutput for BufferTransportOutput {
     type Output = ScratchOutput;
     fn output(&self, f: impl FnOnce(&mut Self::Output)) {
         let mut scratch = ScratchOutput::new();
-        debug!("Output from Anchor!");
+        trace!("Output from Anchor!");
         f(&mut scratch);
         let output = scratch.result();
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
@@ -192,11 +215,11 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     loop {
         let n = pipe.read(&mut rx).await;
         receiver_buf.extend(&rx[..n]);
-        debug!("Pipe read for Anchor!");
+        trace!("Pipe read for Anchor!");
         let recv_data = receiver_buf.data();
         if !recv_data.is_empty() {
             let mut wrap = SliceInputBuffer::new(recv_data);
-            debug!("Data for Anchor!");
+            trace!("Data for Anchor!");
             KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
             let consumed = recv_data.len() - wrap.available();
             if consumed > 0 {
