@@ -2,7 +2,7 @@ use anchor::*;
 use defmt::*;
 
 use crate::LED_STATE;
-use crate::LedState::{Connected, Connecting};
+use crate::LedState::Connected;
 use crate::State;
 use embassy_time::Instant;
 
