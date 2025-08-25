@@ -3,6 +3,8 @@ use defmt::*;
 
 use embassy_time::Instant;
 use crate::State;
+use crate::LedState::{Connected, Connecting};
+use crate::LED_STATE;
 
 #[klipper_constant]
 #[expect(non_upper_case_globals)]
@@ -29,7 +31,9 @@ pub fn get_clock() {
 }
 
 #[klipper_command]
-pub fn emergency_stop() {}
+pub fn emergency_stop() {
+        LED_STATE.signal(crate::LedState::Error);
+}
 
 #[klipper_command]
 pub fn get_config(context: &State) {
@@ -53,6 +57,7 @@ pub fn config_reset(context: &mut State) {
 #[klipper_command]
 pub fn finalize_config(context: &mut State, crc: u32) {
     debug!("finalize_config");
+    LED_STATE.signal(Connected);
     context.config_crc = Some(crc);
 }
 

@@ -12,16 +12,17 @@ use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, spi, usb, Config, Peri};
-use embassy_time::{Timer};
+use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
+use embassy_sync::signal::Signal;
+use embassy_time::Timer;
 use static_cell::StaticCell;
 
-use tmc4671;
-use {defmt_rtt as _, panic_probe as _};
 use anchor::*;
-mod usb_anchor;
-mod spi_passthrough;
+use tmc4671::{self, CS};
+use {defmt_rtt as _, panic_probe as _};
 mod commands;
+mod spi_passthrough;
+mod usb_anchor;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -30,6 +31,8 @@ bind_interrupts!(struct Irqs {
 assign_resources! {
     led: LedResources {
         led: PD7,
+        focled: PE0,
+        errled: PE1,
     }
     tmc: TmcResources {
         miso: PA6,
@@ -39,7 +42,6 @@ assign_resources! {
         spi: SPI1,
         dma_a: DMA2_CH3,
         dma_b: DMA2_CH0,
-        errled: PE1,
     }
     usb: UsbResources {
         otg: USB_OTG_FS,
@@ -49,15 +51,15 @@ assign_resources! {
 }
 
 klipper_enumeration!(
-#[expect(non_camel_case_types)]
+    #[expect(non_camel_case_types)]
     enum spi_bus {
         spi1,
     }
 );
 
 klipper_enumeration!(
- #[expect(non_camel_case_types)]
-   enum pin {
+    #[expect(non_camel_case_types)]
+    enum pin {
         spi1_cs,
     }
 );
@@ -144,14 +146,60 @@ async fn usb_comms(r: UsbResources) {
     join(anchor_fut, anchor_protocol_fut).await;
 }
 
+#[derive(Default)]
+pub enum LedState {
+    #[default]
+    Error,
+    Connecting,
+    Connected,
+    Waiting,
+}
+
+pub static LED_STATE: Signal<CS, LedState> = Signal::new();
+
 #[embassy_executor::task]
 async fn blink(r: LedResources) {
     info!("Hello Blink!");
     let mut led = Output::new(r.led, Level::High, Speed::Low);
+    let mut focled = Output::new(r.focled, Level::High, Speed::Low);
+    let mut errled = Output::new(r.errled, Level::High, Speed::Low);
+    let mut current = LedState::Error;
     loop {
-        led.set_high();
-        Timer::after_millis(300).await;
-
+        if let Some(newstate) = LED_STATE.try_take() {
+            current = newstate;
+        }
+        match current {
+            LedState::Error => {
+                led.set_low();
+                focled.set_low();
+                errled.set_high();
+            }
+            LedState::Waiting => {
+                led.set_high();
+                focled.set_low();
+                errled.set_low();
+                Timer::after_millis(300).await;
+                led.set_low();
+            }
+            LedState::Connecting => {
+                led.set_high();
+                focled.set_high();
+                errled.set_low();
+                Timer::after_millis(300).await;
+                led.set_low();
+                focled.set_low();
+            }
+            LedState::Connected => {
+                led.set_low();
+                focled.set_high();
+                errled.set_low();
+                Timer::after_millis(300).await;
+                led.set_low();
+                focled.set_low();
+            }
+        }
+        errled.set_low();
+        focled.set_low();
         led.set_low();
         Timer::after_millis(300).await;
     }
@@ -174,13 +222,12 @@ async fn tmc_task(r: TmcResources) {
         TMC_CMD.dyn_receiver(),
         TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
     );
-    let mut errled = Output::new(r.errled, Level::High, Speed::Low);
-    errled.set_high();
+    LED_STATE.signal(LedState::Error);
     Timer::after_millis(300).await;
 
     match tmc.init().await {
-        Ok(_) => errled.set_low(),
-        Err(_) => errled.set_high(),
+        Ok(_) => LED_STATE.signal(LedState::Waiting),
+        Err(_) => LED_STATE.signal(LedState::Error),
     }
     tmc.run().await;
 }
@@ -230,12 +277,17 @@ fn main() -> ! {
 
     info!("Hello World!");
 
-    // STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
-    // by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
-    // In this case we’re using UART4 and UART5, but there’s nothing special about them. Any otherwise unused interrupt
-    // vector would work exactly the same.
+    /*
+    STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
+    by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
+    In this case we’re using UART4 and UART5, but there’s nothing special about them. Any otherwise unused interrupt
+    vector would work exactly the same.
+    */
 
-    // High-priority executor: UART4, priority level 6
+    /*
+    High-priority executor: UART4, priority level 6
+    TMC control code goes here.
+    */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     unwrap!(spawner.spawn(tmc_task(r.tmc)));
@@ -245,7 +297,12 @@ fn main() -> ! {
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     unwrap!(spawner.spawn(blink(r.led)));
 
-    // Low priority executor: runs in thread mode, using WFE/SEV
+    /*
+    Low priority executor: runs in thread mode, using WFE/SEV
+    We run Klipper protocol and USB here, so the TMC can preempt it.
+    Note that Anchor is sync code, so preemption is required if it is to be able
+    to message async code and block to receive responses.
+    */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
         unwrap!(spawner.spawn(usb_comms(r.usb)));
