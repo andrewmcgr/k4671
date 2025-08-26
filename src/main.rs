@@ -87,6 +87,10 @@ impl Stepper {
     }
     pub fn queue_move(&self, interval: u32, count: u16, add: i16) {}
     pub fn set_next_dir(&self, dir: Direction) {}
+    pub fn reset_clock(&self, clock: u32) {}
+    pub fn get_position(&self) -> i32 {}
+    pub fn get_commanded_position(&self) -> i32 {}
+    pub fn set_enabled(&self, enabled: bool) {}
 }
 
 pub struct State {

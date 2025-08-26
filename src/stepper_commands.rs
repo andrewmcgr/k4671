@@ -36,6 +36,7 @@ pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
     });
 }
 
+// Set an absolute time that the next step command will be relative to.
 #[klipper_command]
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
@@ -49,10 +50,7 @@ pub fn stepper_get_position(context: &mut State, oid: u8) {
     if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
         return;
     }
-    let pos = context
-        .interfaces
-        .pid_last_measured_position
-        .load(portable_atomic::Ordering::SeqCst);
+    let pos = context.stepper.get_position();
     klipper_reply!(stepper_position, oid: u8, pos: i32)
 }
 
@@ -61,10 +59,7 @@ pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
     if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
         return;
     }
-    let pos = context
-        .interfaces
-        .pid_last_commanded_position
-        .load(portable_atomic::Ordering::SeqCst);
+    let pos = context.stepper.get_commanded_position();
     klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
 }
 
@@ -100,12 +95,10 @@ pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u3
     if !enable {
         context.stepper.reset_target(0);
         LED_STATE.signal(Connected);
+    } else {
+        LED_STATE.signal(Enabled);
     }
-    context
-        .interfaces
-        .pid_set_enable
-        .store(enable, portable_atomic::Ordering::SeqCst);
-    LED_STATE.signal(Enabled);
+    context.stepper.set_enabled(enable);
 }
 
 #[klipper_command]
@@ -117,12 +110,10 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
     if !enable {
         context.stepper.reset_target(0);
         LED_STATE.signal(Connected);
+    } else {
+        LED_STATE.signal(Enabled);
     }
-    context
-        .interfaces
-        .pid_set_enable
-        .store(enable, portable_atomic::Ordering::SeqCst);
-    LED_STATE.signal(Enabled);
+    ccontext.stepper.set_enabled(enable);
 }
 
 klipper_enumeration! {
