@@ -66,13 +66,28 @@ klipper_enumeration!(
     }
 );
 
+pub enum Direction {
+    Forward,
+    Backward,
+}
+
+pub struct Stepper {}
+
+impl Stepper {
+    pub fn new() -> Self { Self {} }
+    pub fn queue_move(&self, interval: u32, count: u16, add: i16) {}
+    pub fn set_next_dir(&self, dir: Direction) {}
+}
+
 pub struct State {
     config_crc: Option<u32>,
+    stepper_oid: Option<u8>,
+    stepper: Stepper,
 }
 
 impl State {
     pub fn new() -> Self {
-        Self { config_crc: None }
+        Self { config_crc: None, stepper_oid: None, stepper: Stepper::new() }
     }
 }
 
