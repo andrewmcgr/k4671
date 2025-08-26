@@ -14,16 +14,16 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::signal::Signal;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
 use tmc4671::{self, CS};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
+mod leds;
 mod spi_passthrough;
 mod usb_anchor;
-mod leds;
 use crate::leds::blink;
 
 bind_interrupts!(struct Irqs {
@@ -71,23 +71,35 @@ pub enum Direction {
     Backward,
 }
 
-pub struct Stepper {}
+pub struct Stepper {
+    stepper_oid: Option<u8>,
+    stepper_enable_oid: Option<u8>,
+    stepper_clock_base: Instant,
+}
 
 impl Stepper {
-    pub fn new() -> Self { Self {} }
+    pub fn new() -> Self {
+        Self {
+            stepper_oid: None,
+            stepper_enable_oid: None,
+            stepper_clock_base: Instant::now(),
+        }
+    }
     pub fn queue_move(&self, interval: u32, count: u16, add: i16) {}
     pub fn set_next_dir(&self, dir: Direction) {}
 }
 
 pub struct State {
     config_crc: Option<u32>,
-    stepper_oid: Option<u8>,
     stepper: Stepper,
 }
 
 impl State {
     pub fn new() -> Self {
-        Self { config_crc: None, stepper_oid: None, stepper: Stepper::new() }
+        Self {
+            config_crc: None,
+            stepper: Stepper::new(),
+        }
     }
 }
 
@@ -169,6 +181,7 @@ pub enum LedState {
     Error,
     Connecting,
     Connected,
+    Enabled,
     Waiting,
 }
 

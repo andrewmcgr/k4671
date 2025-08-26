@@ -3,7 +3,7 @@ use defmt::*;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
 
-use crate::{LedResources, LedState, LED_STATE};
+use crate::{LED_STATE, LedResources, LedState};
 
 #[embassy_executor::task]
 pub async fn blink(r: LedResources) {
@@ -21,6 +21,9 @@ pub async fn blink(r: LedResources) {
                 led.set_low();
                 focled.set_low();
                 errled.set_high();
+                Timer::after_millis(300).await;
+                errled.set_low();
+                Timer::after_millis(300).await;
             }
             LedState::Waiting => {
                 led.set_high();
@@ -28,6 +31,7 @@ pub async fn blink(r: LedResources) {
                 errled.set_low();
                 Timer::after_millis(300).await;
                 led.set_low();
+                Timer::after_millis(300).await;
             }
             LedState::Connecting => {
                 led.set_high();
@@ -36,19 +40,25 @@ pub async fn blink(r: LedResources) {
                 Timer::after_millis(300).await;
                 led.set_low();
                 focled.set_low();
+                Timer::after_millis(300).await;
             }
             LedState::Connected => {
                 led.set_low();
                 focled.set_high();
                 errled.set_low();
                 Timer::after_millis(300).await;
-                led.set_low();
                 focled.set_low();
+                Timer::after_millis(300).await;
+            }
+            LedState::Enabled => {
+                led.set_low();
+                focled.set_high();
+                errled.set_low();
+                Timer::after_millis(300).await;
+                focled.set_low();
+                led.set_high();
+                Timer::after_millis(300).await;                
             }
         }
-        errled.set_low();
-        focled.set_low();
-        led.set_low();
-        Timer::after_millis(300).await;
     }
 }
