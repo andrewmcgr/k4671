@@ -4,8 +4,10 @@ use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
 use registers::*;
 
+use embassy_time::{Duration, Instant};
+
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_sync::{channel, pubsub};
+use embassy_sync::{channel, pubsub, watch::Watch};
 pub use embedded_hal_async::spi;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -17,6 +19,41 @@ pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>
 pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
 
 pub mod registers;
+
+static TMC_PERIOD_WATCH: Watch<CS, Duration, 2> = Watch::new_with(Duration::from_hz(125_000));
+
+#[derive(Debug, defmt::Format)]
+pub struct TimeIterator {
+    next: Instant,
+}
+
+impl TimeIterator {
+    pub fn new() -> TimeIterator {
+        Self {
+            next: Instant::now(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.next = Instant::now();
+        self.advance();
+    }
+
+    pub fn advance(&mut self) -> Instant {
+        self.next += TMC_PERIOD_WATCH.try_get().unwrap();
+        self.next
+    }
+
+    pub fn next(&mut self) -> Instant {
+        loop {
+            if self.next >= Instant::now() {
+                return self.next;
+            } else {
+                self.advance();
+            }
+        }
+    }
+}
 
 #[derive(Debug, defmt::Format, Copy, Clone)]
 pub enum TMCCommand {

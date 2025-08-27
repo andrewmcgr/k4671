@@ -18,12 +18,14 @@ use embassy_time::{Instant, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
-use tmc4671::{self, CS};
+use tmc4671::{self, CS, TMCCommand};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
 mod spi_passthrough;
 mod usb_anchor;
+mod stepper;
+mod stepper_commands;
 use crate::leds::blink;
 
 bind_interrupts!(struct Irqs {
@@ -66,43 +68,29 @@ klipper_enumeration!(
     }
 );
 
-pub enum Direction {
-    Forward,
-    Backward,
-}
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TimeIterator, 128>;
 
-pub struct Stepper {
-    stepper_oid: Option<u8>,
-    stepper_enable_oid: Option<u8>,
-    stepper_clock_base: Instant,
-}
-
-impl Stepper {
-    pub fn new() -> Self {
-        Self {
-            stepper_oid: None,
-            stepper_enable_oid: None,
-            stepper_clock_base: Instant::now(),
-        }
-    }
-    pub fn queue_move(&self, interval: u32, count: u16, add: i16) {}
-    pub fn set_next_dir(&self, dir: Direction) {}
-    pub fn reset_clock(&self, clock: u32) {}
-    pub fn get_position(&self) -> i32 {0}
-    pub fn get_commanded_position(&self) -> i32 {0}
-    pub fn set_enabled(&self, enabled: bool) {}
-}
 
 pub struct State {
     config_crc: Option<u32>,
-    stepper: Stepper,
+    stepper: EmulatedStepper,
+}
+
+impl stepper::PidTimeIterator for tmc4671::TimeIterator {
+    fn next(&mut self) -> u32 {
+        self.next().as_ticks() as u32
+    }
+
+    fn advance(&mut self) -> u32 {
+        self.advance().as_ticks() as u32
+    }
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
             config_crc: None,
-            stepper: Stepper::new(),
+            stepper: EmulatedStepper::new(tmc4671::TimeIterator::new()),
         }
     }
 }

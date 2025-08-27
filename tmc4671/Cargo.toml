@@ -7,6 +7,7 @@ edition = "2024"
 embedded-devices-derive= { git = "https://github.com/oddlama/embedded-devices", version = "0.9.13" }
 embedded-interfaces = { git = "https://github.com/oddlama/embedded-devices", version = "0.9.13" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git" }
 embedded-hal-async = { version = "1.0" }
 defmt = "1.0.1"

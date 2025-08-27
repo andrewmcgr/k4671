@@ -3,6 +3,7 @@ use crate::LedState::{Connected, Enabled};
 use crate::State;
 use anchor::*;
 use defmt::*;
+use crate::stepper::Direction;
 
 #[klipper_command]
 pub fn config_stepper(
@@ -68,7 +69,7 @@ pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, _trsync_oid: u8) {
     if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
         return;
     }
-    klipper_shutdown!("trsync not supported", Clock::clock32());
+    // klipper_shutdown!("trsync not supported", Clock::clock32());
 }
 
 #[klipper_command]
@@ -113,7 +114,7 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
     } else {
         LED_STATE.signal(Enabled);
     }
-    ccontext.stepper.set_enabled(enable);
+    context.stepper.set_enabled(enable);
 }
 
 klipper_enumeration! {
