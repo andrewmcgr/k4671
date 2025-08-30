@@ -300,11 +300,13 @@ impl<T: PidTimeIterator, const N: usize> EmulatedStepper<T, N> {
     }
 
     pub fn get_position(&self) -> i32 {
-        0
+        self.state.position as i32
     }
+
     pub fn get_commanded_position(&self) -> i32 {
-        0
+        self.state.position as i32
     }
+    
     pub fn set_enabled(&mut self, enabled: bool) {
         let cmd = if enabled {
             TMCCommand::Enable

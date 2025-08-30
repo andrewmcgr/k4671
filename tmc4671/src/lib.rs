@@ -142,8 +142,7 @@ where
         }
     }
 
-    // Run device. Never returns.
-    pub async fn run(&mut self) -> ! {
+    pub async fn cmd_process(&mut self) -> ! {
         loop {
             match self.command_rx.receive().await {
                 TMCCommand::Enable => (),
@@ -166,6 +165,11 @@ where
                 }
             }
         }
+    }
+
+    // Run device. Never returns.
+    pub async fn run(&mut self) -> ! {
+        self.cmd_process().await;
     }
 }
 
