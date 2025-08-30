@@ -26,6 +26,7 @@ mod spi_passthrough;
 mod usb_anchor;
 mod stepper;
 mod stepper_commands;
+mod target_queue;
 use crate::leds::blink;
 
 bind_interrupts!(struct Irqs {
