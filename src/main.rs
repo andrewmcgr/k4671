@@ -13,13 +13,12 @@ use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
-use embassy_sync::lazy_lock::LazyLock;
 use embassy_sync::signal::Signal;
-use embassy_time::Timer;
+use embassy_time::{Instant, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
-use tmc4671::{self, CS};
+use tmc4671::{self, CS, TimeIterator};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
@@ -78,6 +77,7 @@ pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 12
 pub struct State {
     config_crc: Option<u32>,
     stepper: EmulatedStepper,
+    target_queue: crate::stepper::TargetQueue,
 }
 
 impl State {
@@ -85,6 +85,7 @@ impl State {
         Self {
             config_crc: None,
             stepper: EmulatedStepper::new(tmc4671::TMCTimeIterator::new()),
+            target_queue: crate::stepper::TargetQueue::new(),
         }
     }
 }
@@ -119,8 +120,13 @@ klipper_config_generate!(
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
-pub static TMC_TARGET_QUEUE: LazyLock<crate::stepper::TargetQueue> =
-    LazyLock::new(|| crate::stepper::TargetQueue::new());
+
+
+fn process_moves(state: &mut State, ticks: Instant) {
+    state.stepper.advance(&mut state.target_queue);
+    let control = state.target_queue.get_for_control(ticks);
+
+}
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
@@ -128,20 +134,27 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut receiver_buf: RxBuf = RxBuf::new();
     let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
         [0; usb_anchor::MAX_PACKET_SIZE as usize];
+    let mut ticker = tmc4671::TMCTimeIterator::new();
     loop {
-        let n = pipe.read(&mut rx).await;
-        receiver_buf.extend(&rx[..n]);
-        trace!("Pipe read for Anchor!");
-        let recv_data = receiver_buf.data();
-        if !recv_data.is_empty() {
-            let mut wrap = SliceInputBuffer::new(recv_data);
-            trace!("Data for Anchor!");
-            KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
-            let consumed = recv_data.len() - wrap.available();
-            if consumed > 0 {
-                receiver_buf.pop(consumed);
+        let ticks = ticker.next();
+        // Move processing
+        process_moves(&mut state, ticks);
+        // Now we're done with moves, check for commands from Klipper
+        while let Ok(n) = pipe.try_read(&mut rx) {
+            receiver_buf.extend(&rx[..n]);
+            trace!("Pipe read for Anchor!");
+            let recv_data = receiver_buf.data();
+            if !recv_data.is_empty() {
+                let mut wrap = SliceInputBuffer::new(recv_data);
+                trace!("Data for Anchor!");
+                KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
+                let consumed = recv_data.len() - wrap.available();
+                if consumed > 0 {
+                    receiver_buf.pop(consumed);
+                }
             }
         }
+        Timer::at(ticks).await
     }
 }
 

@@ -88,7 +88,7 @@ struct State {
 }
 
 impl State {
-    /// Advances the state by the given move, up to maximum time u32
+    /// Advances the state by the given move, up to maximum time
     fn advance(&mut self, cmd: &Move, up_to_time: Instant) -> AdvanceResult {
         let next_step =
             Instant::from_ticks(self.last_step.as_ticks().wrapping_add(cmd.interval.into()));

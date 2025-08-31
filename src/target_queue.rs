@@ -109,7 +109,7 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
     }
 }
 
-impl<M: Mutex, const N: usize> Callbacks for &TargetQueue<M, N> {
+impl<M: Mutex, const N: usize> Callbacks for TargetQueue<M, N> {
     fn append(&mut self, time: Instant, value: u32) {
         TargetQueue::append(self, time, value)
     }
