@@ -12,8 +12,8 @@ pub type TargetQueueInnerTypeCell<const N: usize> = RefCell<TargetQueueInner<N>>
 
 pub struct ControlOutput {
     pub position: i32,
-    pub position_1: Option<(u32, i32)>,
-    pub position_2: Option<(u32, i32)>,
+    pub position_1: Option<(u64, i32)>,
+    pub position_2: Option<(u64, i32)>,
 }
 
 impl ControlOutput {
@@ -75,8 +75,7 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
         });
     }
 
-    pub fn get_for_control(&self, time: u32) -> ControlOutput {
-        let time = Instant::from_ticks(time as u64);
+    pub fn get_for_control(&self, time: Instant) -> ControlOutput {
         M::lock(&self.inner, |q| {
             let mut inner = q.borrow_mut();
             let last = inner.last_value as i32;
@@ -103,8 +102,8 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
             let v2 = iter.next().copied();
             ControlOutput {
                 position: v0 as i32,
-                position_1: v1.map(|(t, v)| (t.as_ticks() as u32, v as i32)),
-                position_2: v2.map(|(t, v)| (t.as_ticks() as u32, v as i32)),
+                position_1: v1.map(|(t, v)| (t.as_ticks(), v as i32)),
+                position_2: v2.map(|(t, v)| (t.as_ticks(), v as i32)),
             }
         })
     }

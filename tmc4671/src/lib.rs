@@ -1,10 +1,11 @@
 #![no_std]
+use defmt::*;
 use embedded_interfaces::TransportError;
 use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
 use registers::*;
 
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Instant, Timer};
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_sync::{channel, pubsub, watch::Watch};
@@ -21,17 +22,17 @@ pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandRespons
 
 pub mod registers;
 
-static TMC_PERIOD_WATCH: Watch<CS, Duration, 2> = Watch::new_with(Duration::from_hz(125_000));
-
 #[derive(Debug, defmt::Format)]
 pub struct TimeIterator {
     next: Instant,
+    advance: Duration,
 }
 
 impl TimeIterator {
     pub fn new() -> TimeIterator {
         Self {
             next: Instant::now(),
+            advance: Duration::from_hz(125000),
         }
     }
 
@@ -40,8 +41,12 @@ impl TimeIterator {
         self.advance();
     }
 
+    pub fn set_period(&mut self, t: Duration) {
+        self.advance = t;
+    }
+
     pub fn advance(&mut self) -> Instant {
-        self.next += TMC_PERIOD_WATCH.try_get().unwrap();
+        self.next += self.advance;
         self.next
     }
 
@@ -163,17 +168,21 @@ where
         let mut ticker = TimeIterator::new();
         loop {
             let ticks = ticker.next();
-            match self.command_rx.receive().await {
-                TMCCommand::Enable => {
+            match self.command_rx.try_receive().ok() {
+                Some(TMCCommand::Enable) => {
+                    info!("TMC Enable!");
                     let _ = self.enable_pin.set_high();
                 }
-                TMCCommand::Disable => {
+                Some(TMCCommand::Disable) => {
+                    info!("TMC Disable!");
                     let _ = self.enable_pin.set_low();
                 }
-                TMCCommand::SpiSend(data) => {
+                Some(TMCCommand::SpiSend(data)) => {
+                    info!("TMC SpiSend!");
                     let _ = self.interface.interface.write(&data).await;
                 }
-                TMCCommand::SpiTransfer(data) => {
+                Some(TMCCommand::SpiTransfer(data)) => {
+                    info!("TMC SpiTransfer!");
                     let mut resp: [u8; 5] = [0; 5];
                     if self
                         .interface
@@ -186,7 +195,9 @@ where
                             .publish_immediate(TMCCommandResponse::SpiResponse(resp));
                     }
                 }
+                None => (),
             }
+            Timer::at(ticks).await
         }
     }
 }
