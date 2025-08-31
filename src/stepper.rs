@@ -145,11 +145,6 @@ pub struct EmulatedStepper<T, const N: usize> {
     pub stepper_enable_oid: Option<u8>,
 }
 
-pub trait PidTimeIterator {
-    fn next(&mut self) -> u32;
-    fn advance(&mut self) -> u32;
-}
-
 #[derive(Debug)]
 struct CallbackState {
     last_append: (Instant, u32),
@@ -183,7 +178,7 @@ impl CallbackState {
 }
 
 
-impl<T: PidTimeIterator, const N: usize> EmulatedStepper<T, N> {
+impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     pub fn new(target_time: T) -> Self {
         Self {
             queue: Deque::new(),
@@ -220,7 +215,7 @@ impl<T: PidTimeIterator, const N: usize> EmulatedStepper<T, N> {
         if let Some(reset_target) = self.reset_target.take() {
             self.state.position = reset_target;
             self.callback_state.emit(
-                Instant::from_ticks(self.target_time.next().into()),
+                self.target_time.next(),
                 reset_target,
                 callbacks,
             );
@@ -238,7 +233,7 @@ impl<T: PidTimeIterator, const N: usize> EmulatedStepper<T, N> {
             };
 
             // Get next PID tick
-            let mut next_time = Instant::from_ticks(self.target_time.next().into());
+            let mut next_time = self.target_time.next();
             while cmd.count != 0 && self.callback_state.can_append(callbacks) {
                 // Apply current command up to the next tick
                 match self.state.advance(cmd, next_time) {
@@ -255,11 +250,11 @@ impl<T: PidTimeIterator, const N: usize> EmulatedStepper<T, N> {
                         self.callback_state
                             .emit(next_time, self.state.position, callbacks);
                         self.callback_state.incomplete = false;
-                        next_time = Instant::from_ticks(self.target_time.advance().into());
+                        next_time = self.target_time.advance();
                         *cmd = new_cmd;
                     }
                     AdvanceResult::FutureMove => {
-                        next_time = Instant::from_ticks(self.target_time.advance().into());
+                        next_time = self.target_time.advance();
                         self.callback_state.incomplete = false;
                     }
                 };

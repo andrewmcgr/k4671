@@ -22,14 +22,19 @@ pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandRespons
 
 pub mod registers;
 
+pub trait TimeIterator {
+    fn next(&mut self) -> Instant;
+    fn advance(&mut self) -> Instant;
+}
+
 #[derive(Debug, defmt::Format)]
-pub struct TimeIterator {
+pub struct TMCTimeIterator {
     next: Instant,
     advance: Duration,
 }
 
-impl TimeIterator {
-    pub fn new() -> TimeIterator {
+impl TMCTimeIterator {
+    pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
             advance: Duration::from_hz(125000),
@@ -44,13 +49,15 @@ impl TimeIterator {
     pub fn set_period(&mut self, t: Duration) {
         self.advance = t;
     }
+}
 
-    pub fn advance(&mut self) -> Instant {
+impl TimeIterator for TMCTimeIterator {
+    fn advance(&mut self) -> Instant {
         self.next += self.advance;
         self.next
     }
 
-    pub fn next(&mut self) -> Instant {
+    fn next(&mut self) -> Instant {
         loop {
             if self.next >= Instant::now() {
                 return self.next;
@@ -165,7 +172,7 @@ where
 
     // Run device. Never returns.
     pub async fn run(&mut self) -> ! {
-        let mut ticker = TimeIterator::new();
+        let mut ticker = TMCTimeIterator::new();
         loop {
             let ticks = ticker.next();
             match self.command_rx.try_receive().ok() {

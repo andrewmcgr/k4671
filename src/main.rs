@@ -72,28 +72,18 @@ klipper_enumeration!(
     }
 );
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TimeIterator, 128>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 128>;
 
 pub struct State {
     config_crc: Option<u32>,
     stepper: EmulatedStepper,
 }
 
-impl stepper::PidTimeIterator for tmc4671::TimeIterator {
-    fn next(&mut self) -> u32 {
-        self.next().as_ticks() as u32
-    }
-
-    fn advance(&mut self) -> u32 {
-        self.advance().as_ticks() as u32
-    }
-}
-
 impl State {
     pub fn new() -> Self {
         Self {
             config_crc: None,
-            stepper: EmulatedStepper::new(tmc4671::TimeIterator::new()),
+            stepper: EmulatedStepper::new(tmc4671::TMCTimeIterator::new()),
         }
     }
 }
