@@ -6,6 +6,7 @@ use cortex_m_rt::entry;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
+use embassy_futures::block_on;
 use embassy_futures::join::join;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
@@ -14,7 +15,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::signal::Signal;
-use embassy_time::{Instant, Timer, TICK_HZ};
+use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
@@ -150,6 +151,11 @@ fn process_moves(state: &mut State, next_time: Instant) {
         }
         _ => 0.0,
     };
+    block_on(
+        TMC_CMD
+            .dyn_sender()
+            .send(tmc4671::TMCCommand::Move(target_position, v0, a0)),
+    );
 }
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
