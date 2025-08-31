@@ -5,7 +5,6 @@ use crate::stepper::Direction;
 use embassy_time::Instant;
 
 use anchor::*;
-use defmt::*;
 
 #[klipper_command]
 pub fn config_stepper(

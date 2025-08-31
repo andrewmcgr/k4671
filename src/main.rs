@@ -15,11 +15,11 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::lazy_lock::LazyLock;
 use embassy_sync::signal::Signal;
-use embassy_time::{Instant, Timer};
+use embassy_time::Timer;
 use static_cell::StaticCell;
 
 use anchor::*;
-use tmc4671::{self, CS, TMCCommand};
+use tmc4671::{self, CS};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
@@ -29,7 +29,6 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
-use crate::target_queue::{TargetQueue, TargetQueueInnerTypeCell};
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;

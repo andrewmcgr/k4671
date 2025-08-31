@@ -8,7 +8,7 @@ use registers::*;
 use embassy_time::{Duration, Instant, Timer};
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_sync::{channel, mutex::{self, Mutex}, pubsub};
+use embassy_sync::{channel, pubsub};
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 

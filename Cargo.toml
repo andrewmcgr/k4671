@@ -39,3 +39,10 @@ anchor_codegen = { git = "https://github.com/Annex-Engineering/anchor.git" }
 
 [profile.release]
 debug = 2
+
+[[bin]]
+name = "k4671"
+path = "src/main.rs"
+test = false
+doctest = false
+bench = false
