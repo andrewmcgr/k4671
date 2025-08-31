@@ -8,11 +8,12 @@ use registers::*;
 use embassy_time::{Duration, Instant, Timer};
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_sync::{channel, pubsub, watch::Watch};
+use embassy_sync::{channel, mutex::{self, Mutex}, pubsub};
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+
 pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;
 pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
 pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
@@ -37,7 +38,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(125000),
+            advance: Duration::from_hz(25000),
         }
     }
 

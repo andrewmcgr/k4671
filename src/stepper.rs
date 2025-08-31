@@ -1,8 +1,26 @@
+use crate::TMC_CMD;
 use embassy_futures::block_on;
 use embassy_time::{Duration, Instant};
+use embassy_sync::blocking_mutex::{raw::CriticalSectionRawMutex, Mutex as BlockingMutex};
 use heapless::Deque;
 use tmc4671::*;
-use crate::TMC_CMD;
+
+pub struct MutexWrapper;
+
+impl crate::target_queue::Mutex for MutexWrapper {
+    type Inner<T> = BlockingMutex<CriticalSectionRawMutex, T>;
+
+    fn new<T>(val: T) -> Self::Inner<T> {
+        BlockingMutex::new(val)
+    }
+
+    fn lock<T, R>(inner: &Self::Inner<T>, f: impl FnOnce(&T) -> R) -> R {
+        inner.lock(f)
+    }
+}
+
+pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 2000>;
+
 
 #[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Direction {
@@ -63,7 +81,6 @@ impl Move {
     }
 }
 
-
 #[derive(Debug)]
 struct State {
     last_step: Instant,
@@ -73,7 +90,8 @@ struct State {
 impl State {
     /// Advances the state by the given move, up to maximum time u32
     fn advance(&mut self, cmd: &Move, up_to_time: Instant) -> AdvanceResult {
-        let next_step = Instant::from_ticks(self.last_step.as_ticks().wrapping_add(cmd.interval.into()));
+        let next_step =
+            Instant::from_ticks(self.last_step.as_ticks().wrapping_add(cmd.interval.into()));
         if next_step > up_to_time {
             return AdvanceResult::FutureMove;
         }
@@ -177,7 +195,6 @@ impl CallbackState {
     }
 }
 
-
 impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     pub fn new(target_time: T) -> Self {
         Self {
@@ -199,8 +216,8 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         }
     }
 
-    pub fn reset_clock(&mut self, time: u32) {
-        self.state.last_step = Instant::from_ticks(time.into());
+    pub fn reset_clock(&mut self, time: Instant) {
+        self.state.last_step = time;
     }
 
     pub fn current_position(&self) -> i32 {
@@ -214,11 +231,8 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     pub fn advance(&mut self, callbacks: &mut impl Callbacks) {
         if let Some(reset_target) = self.reset_target.take() {
             self.state.position = reset_target;
-            self.callback_state.emit(
-                self.target_time.next(),
-                reset_target,
-                callbacks,
-            );
+            self.callback_state
+                .emit(self.target_time.next(), reset_target, callbacks);
         }
         while self.callback_state.can_append(callbacks) {
             let cmd = match self.current_move.as_mut() {
@@ -301,7 +315,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     pub fn get_commanded_position(&self) -> i32 {
         self.state.position as i32
     }
-    
+
     pub fn set_enabled(&mut self, enabled: bool) {
         let cmd = if enabled {
             TMCCommand::Enable

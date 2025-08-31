@@ -1,9 +1,11 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
+use crate::stepper::Direction;
+use embassy_time::Instant;
+
 use anchor::*;
 use defmt::*;
-use crate::stepper::Direction;
 
 #[klipper_command]
 pub fn config_stepper(
@@ -43,7 +45,9 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
         return;
     }
-    context.stepper.reset_clock(clock);
+    context.stepper.reset_clock(Instant::from_ticks(
+        Instant::now().as_ticks() & 0xffff_ffff << 32 & (clock as u64),
+    ));
 }
 
 #[klipper_command]

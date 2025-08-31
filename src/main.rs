@@ -13,6 +13,7 @@ use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
+use embassy_sync::lazy_lock::LazyLock;
 use embassy_sync::signal::Signal;
 use embassy_time::{Instant, Timer};
 use static_cell::StaticCell;
@@ -28,6 +29,7 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
+use crate::target_queue::{TargetQueue, TargetQueueInnerTypeCell};
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -117,6 +119,9 @@ klipper_config_generate!(
 
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
+
+pub static TMC_TARGET_QUEUE: LazyLock<crate::stepper::TargetQueue> =
+    LazyLock::new(|| crate::stepper::TargetQueue::new());
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
