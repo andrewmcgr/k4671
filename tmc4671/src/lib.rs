@@ -75,6 +75,7 @@ pub enum TMCCommand {
     Disable,
     SpiSend([u8; 5]),
     SpiTransfer([u8; 5]),
+    Move(i32, f32, f32),
 }
 
 #[derive(Debug, defmt::Format, Copy, Clone)]
@@ -202,6 +203,12 @@ where
                         self.response_tx
                             .publish_immediate(TMCCommandResponse::SpiResponse(resp));
                     }
+                }
+                Some(TMCCommand::Move(pos, vel, accel)) => {
+                    let _ = self
+                        .interface
+                        .write_register(PidPositionTarget::default().with_value(pos))
+                        .await;
                 }
                 None => (),
             }

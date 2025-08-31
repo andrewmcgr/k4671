@@ -14,7 +14,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::signal::Signal;
-use embassy_time::{Instant, Timer};
+use embassy_time::{Instant, Timer, TICK_HZ};
 use static_cell::StaticCell;
 
 use anchor::*;
@@ -120,12 +120,36 @@ klipper_config_generate!(
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
-
-
-fn process_moves(state: &mut State, ticks: Instant) {
+fn process_moves(state: &mut State, next_time: Instant) {
     state.stepper.advance(&mut state.target_queue);
-    let control = state.target_queue.get_for_control(ticks);
+    let crate::target_queue::ControlOutput {
+        position: target_position,
+        position_1: c1,
+        position_2: c2,
+    } = state.target_queue.get_for_control(next_time);
 
+    let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
+    let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
+
+    let v0 = match c1 {
+        Some((t1, p1)) => {
+            (((p1 as i32) - (target_position)) as f32)
+                / ((t1 - next_time).as_ticks() as f32 / (TICK_HZ as f32))
+        }
+        _ => 0.0,
+    };
+    let v1 = match (c1, c2) {
+        (Some((t1, p1)), Some((t2, p2))) => {
+            (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+        }
+        _ => 0.0,
+    };
+    let a0 = match (v0, v1, c1, c2) {
+        (v0, v1, Some((t1, _)), Some((t2, _))) => {
+            (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+        }
+        _ => 0.0,
+    };
 }
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {

@@ -605,35 +605,38 @@ interface_objects! {
   }
 
   register PhiE(addr = 0x53, mode = rw, size=4) {
-    value: u32,
+    value: i16,
+    _: u16[16..32],
   }
 
   register PidFluxPFluxI(addr = 0x54, mode = rw, size=4) {
-    pid_flux_i: u16[0..16],
-    pid_flux_p: u16[16..32],
+    pid_flux_i: i16[0..16],
+    pid_flux_p: i16[16..32],
   }
 
   register PidTorquePTorqueI(addr = 0x56, mode = rw, size=4) {
-    pid_torque_i: u16[0..16],
-    pid_torque_p: u16[16..32],
+    pid_torque_i: i16[0..16],
+    pid_torque_p: i16[16..32],
   }
 
   register PidVelocityPVelocityI(addr = 0x58, mode = rw, size=4) {
-    pid_velocity_i: u16[0..16],
-    pid_velocity_p: u16[16..32],
+    pid_velocity_i: i16[0..16],
+    pid_velocity_p: i16[16..32],
   }
 
   register PidPositionPPositionI(addr = 0x5a, mode = rw, size=4) {
-    pid_position_i: u16[0..16],
-    pid_position_p: u16[16..32],
+    pid_position_i: i16[0..16],
+    pid_position_p: i16[16..32],
   }
 
   register PidoutUqUdLimits(addr = 0x5d, mode = rw, size=4) {
-    value: u32,
+    value: u16,
+    _: u16[16..32],
   }
 
   register PidTorqueFluxLimits(addr = 0x5e, mode = rw, size=4) {
-    value: u32,
+    value: u16,
+    _: u16[16..32],
   }
 
   register PidVelocityLimit(addr = 0x60, mode = rw, size=4) {
@@ -641,11 +644,11 @@ interface_objects! {
   }
 
   register PidPositionLimitLow(addr = 0x61, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register PidPositionLimitHigh(addr = 0x62, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register ModeRampModeMotion(addr = 0x63, mode = rw, size=4) {
@@ -657,25 +660,25 @@ interface_objects! {
   }
 
   register PidTorqueFluxTarget(addr = 0x64, mode = rw, size=4) {
-    pid_flux_target: u16[0..16],
-    pid_torque_target: u16[16..32],
+    pid_flux_target: i16[0..16],
+    pid_torque_target: i16[16..32],
   }
 
   register PidTorqueFluxOffset(addr = 0x65, mode = rw, size=4) {
-    pid_flux_offset: u16[0..16],
-    pid_torque_offset: u16[16..32],
+    pid_flux_offset: i16[0..16],
+    pid_torque_offset: i16[16..32],
   }
 
   register PidVelocityTarget(addr = 0x66, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register PidVelocityOffset(addr = 0x67, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register PidPositionTarget(addr = 0x68, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register PidTorqueFluxActual(addr = 0x69, mode = rw, size=4) {
@@ -684,15 +687,15 @@ interface_objects! {
   }
 
   register PidVelocityActual(addr = 0x6a, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register PidPositionActual(addr = 0x6b, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register PidErrorData(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   enum PidError: u32{32} {
