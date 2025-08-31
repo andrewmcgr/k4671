@@ -10,6 +10,7 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git" }
 embedded-hal-async = { version = "1.0" }
+embedded-hal = { version = "1.0" }
 defmt = "1.0.1"
 bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics"] }
 thiserror = { version = "2.0.12", default-features = false }

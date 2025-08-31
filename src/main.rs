@@ -7,7 +7,7 @@ use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_futures::join::join;
-use embassy_stm32::gpio::{Level, Output, Speed};
+pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
@@ -23,10 +23,10 @@ use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
 mod spi_passthrough;
-mod usb_anchor;
 mod stepper;
 mod stepper_commands;
 mod target_queue;
+mod usb_anchor;
 use crate::leds::blink;
 
 bind_interrupts!(struct Irqs {
@@ -47,6 +47,9 @@ assign_resources! {
         spi: SPI1,
         dma_a: DMA2_CH3,
         dma_b: DMA2_CH0,
+        enable: PE7,
+        flag: PE8,
+        brake: PE10,
     }
     usb: UsbResources {
         otg: USB_OTG_FS,
@@ -70,7 +73,6 @@ klipper_enumeration!(
 );
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TimeIterator, 128>;
-
 
 pub struct State {
     config_crc: Option<u32>,
@@ -191,11 +193,17 @@ async fn tmc_task(r: TmcResources) {
     let spi = spi::Spi::new(r.spi, r.clk, r.mosi, r.miso, r.dma_a, r.dma_b, spi_config);
     let spi_bus = usb_anchor::AnchorMutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
+    let enable = Output::new(r.enable, Level::High, Speed::VeryHigh);
+    let flag = Input::new(r.flag, Pull::Up);
+    let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
     let mut tmc = tmc4671::TMC4671::new_spi(
         spi_dev,
         TMC_CMD.dyn_receiver(),
         TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
+        enable,
+        flag,
+        brake,
     );
     LED_STATE.signal(LedState::Error);
     Timer::after_millis(300).await;

@@ -8,6 +8,7 @@ use embassy_time::{Duration, Instant};
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_sync::{channel, pubsub, watch::Watch};
+pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -84,19 +85,26 @@ pub enum FaultDetectionError<BusError> {
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
 ///
 /// For a full description and usage examples, refer to the [module documentation](self).
-pub struct TMC4671<'a, I>
+pub struct TMC4671<'a, I, O, P>
 where
     I: embedded_hal_async::spi::SpiDevice,
+    O: OutputPin,
+    P: InputPin,
 {
     /// The interface to communicate with the device
     interface: embedded_interfaces::spi::SpiDeviceAsync<I>,
     command_rx: TMCCommandReceiver<'a>,
     response_tx: TMCResponsePublisher<'a>,
+    enable_pin: O,
+    flag_pin: P,
+    brake_pin: O,
 }
 
-impl<'a, I> TMC4671<'a, I>
+impl<'a, I, O, P> TMC4671<'a, I, O, P>
 where
     I: embedded_hal_async::spi::SpiDevice,
+    O: OutputPin,
+    P: InputPin,
 {
     /// Initializes a new device from the specified SPI device.
     /// This consumes the SPI device `I`.
@@ -107,20 +115,28 @@ where
         spi: I,
         command_rx: TMCCommandReceiver<'a>,
         response_tx: TMCResponsePublisher<'a>,
+        enable_pin: O,
+        flag_pin: P,
+        brake_pin: O,
     ) -> Self {
         Self {
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
             command_rx: command_rx,
             response_tx: response_tx,
+            enable_pin: enable_pin,
+            flag_pin: flag_pin,
+            brake_pin: brake_pin,
         }
     }
 }
 
 pub trait TMC4671Register {}
 
-impl<'a, I> TMC4671<'a, I>
+impl<'a, I, O, P> TMC4671<'a, I, O, P>
 where
     I: embedded_hal_async::spi::SpiDevice,
+    O: OutputPin,
+    P: InputPin,
 {
     //// Detect a device
     pub async fn init(
@@ -142,11 +158,18 @@ where
         }
     }
 
-    pub async fn cmd_process(&mut self) -> ! {
+    // Run device. Never returns.
+    pub async fn run(&mut self) -> ! {
+        let mut ticker = TimeIterator::new();
         loop {
+            let ticks = ticker.next();
             match self.command_rx.receive().await {
-                TMCCommand::Enable => (),
-                TMCCommand::Disable => (),
+                TMCCommand::Enable => {
+                    let _ = self.enable_pin.set_high();
+                }
+                TMCCommand::Disable => {
+                    let _ = self.enable_pin.set_low();
+                }
                 TMCCommand::SpiSend(data) => {
                     let _ = self.interface.interface.write(&data).await;
                 }
@@ -165,11 +188,6 @@ where
                 }
             }
         }
-    }
-
-    // Run device. Never returns.
-    pub async fn run(&mut self) -> ! {
-        self.cmd_process().await;
     }
 }
 
