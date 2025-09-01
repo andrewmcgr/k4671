@@ -102,8 +102,8 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
             let v2 = iter.next().copied();
             ControlOutput {
                 position: v0 as i32,
-                position_1: v1.map(|(t, v)| (t.as_ticks(), v as i32)),
-                position_2: v2.map(|(t, v)| (t.as_ticks(), v as i32)),
+                position_1: v1.map(|(t, v)| (t.as_micros(), v as i32)),
+                position_2: v2.map(|(t, v)| (t.as_micros(), v as i32)),
             }
         })
     }

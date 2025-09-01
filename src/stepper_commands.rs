@@ -44,8 +44,8 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
         return;
     }
-    context.stepper.reset_clock(Instant::from_ticks(
-        Instant::now().as_ticks() & 0xffff_ffff << 32 & (clock as u64),
+    context.stepper.reset_clock(Instant::from_micros(
+        Instant::now().as_micros() & 0xffff_ffff << 32 & (clock as u64),
     ));
 }
 
@@ -123,6 +123,7 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
 klipper_enumeration! {
     #[klipper_enumeration(name = "pin", rename_all="snake_case")]
     enum Pins {
+        ChipSelect,
         Step,
         Dir,
         Enable,

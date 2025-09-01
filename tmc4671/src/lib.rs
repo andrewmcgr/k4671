@@ -176,42 +176,43 @@ where
     pub async fn run(&mut self) -> ! {
         let mut ticker = TMCTimeIterator::new();
         loop {
-            let ticks = ticker.next();
-            match self.command_rx.try_receive().ok() {
-                Some(TMCCommand::Enable) => {
-                    info!("TMC Enable!");
-                    let _ = self.enable_pin.set_high();
-                }
-                Some(TMCCommand::Disable) => {
-                    info!("TMC Disable!");
-                    let _ = self.enable_pin.set_low();
-                }
-                Some(TMCCommand::SpiSend(data)) => {
-                    info!("TMC SpiSend!");
-                    let _ = self.interface.interface.write(&data).await;
-                }
-                Some(TMCCommand::SpiTransfer(data)) => {
-                    info!("TMC SpiTransfer!");
-                    let mut resp: [u8; 5] = [0; 5];
-                    if self
-                        .interface
-                        .interface
-                        .transfer(&mut resp, &data)
-                        .await
-                        .is_ok()
-                    {
-                        self.response_tx
-                            .publish_immediate(TMCCommandResponse::SpiResponse(resp));
+            while let Some(cmd) = self.command_rx.try_receive().ok() {
+                match cmd {
+                    TMCCommand::Enable => {
+                        info!("TMC Enable!");
+                        let _ = self.enable_pin.set_high();
+                    }
+                    TMCCommand::Disable => {
+                        info!("TMC Disable!");
+                        let _ = self.enable_pin.set_low();
+                    }
+                    TMCCommand::SpiSend(data) => {
+                        info!("TMC SpiSend!");
+                        let _ = self.interface.interface.write(&data).await;
+                    }
+                    TMCCommand::SpiTransfer(data) => {
+                        info!("TMC SpiTransfer!");
+                        let mut resp: [u8; 5] = [0; 5];
+                        if self
+                            .interface
+                            .interface
+                            .transfer(&mut resp, &data)
+                            .await
+                            .is_ok()
+                        {
+                            self.response_tx
+                                .publish_immediate(TMCCommandResponse::SpiResponse(resp));
+                        }
+                    }
+                    TMCCommand::Move(pos, vel, accel) => {
+                        let _ = self
+                            .interface
+                            .write_register(PidPositionTarget::default().with_value(pos))
+                            .await;
                     }
                 }
-                Some(TMCCommand::Move(pos, vel, accel)) => {
-                    let _ = self
-                        .interface
-                        .write_register(PidPositionTarget::default().with_value(pos))
-                        .await;
-                }
-                None => (),
             }
+            let ticks = ticker.next();
             Timer::at(ticks).await
         }
     }
