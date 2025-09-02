@@ -247,20 +247,20 @@ interface_objects! {
   }
 
   register OpenloopVelocityTarget(addr = 0x21, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register OpenloopVelocityActual(addr = 0x22, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register OpenloopPhi(addr = 0x23, mode = rw, size=4) {
-    value: u32,
+    value: i32,
   }
 
   register UqUdExt(addr = 0x24, mode = rw, size=4) {
-    ud_ext: u16[0..16],
-    uq_ext: u16[16..32],
+    ud_ext: i16[0..16],
+    uq_ext: i16[16..32],
   }
 
   register AbnDecoderMode(addr = 0x25, mode = rw, size=4) {
