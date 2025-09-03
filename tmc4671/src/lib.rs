@@ -204,7 +204,7 @@ where
                                 .publish_immediate(TMCCommandResponse::SpiResponse(resp));
                         }
                     }
-                    TMCCommand::Move(pos, vel, accel) => {
+                    TMCCommand::Move(pos, _vel, _accel) => {
                         let _ = self
                             .interface
                             .write_register(PidPositionTarget::default().with_value(pos))

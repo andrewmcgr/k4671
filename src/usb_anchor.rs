@@ -6,6 +6,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
+use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 
 pub const ANCHOR_PIPE_SIZE: usize = 1024;
@@ -13,6 +14,17 @@ pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
 pub type AnchorMutex<T> = Mutex<CS, T>;
+
+struct Disconnected {}
+
+impl From<EndpointError> for Disconnected {
+    fn from(val: EndpointError) -> Self {
+        match val {
+            EndpointError::BufferOverflow => panic!("Buffer overflow"),
+            EndpointError::Disabled => Disconnected {},
+        }
+    }
+}
 
 /// The anchor state containing buffers that must live as long as the USB peripheral.
 pub struct AnchorState<'d> {
@@ -98,28 +110,30 @@ impl UsbAnchor {
     ) where
         D: Driver<'d>,
     {
-        let out_fut = async {
+        let mut out_fut = async || -> Result<(), Disconnected> {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             LED_STATE.signal(Connecting);
             sender.wait_connection().await;
             loop {
                 let len = out_pipe.read(&mut rx[..]).await;
-                let _ = sender.write_packet(&rx[..len]).await;
+                let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
                 }
             }
         };
-        let reciever_fut = async {
+        let mut reciever_fut = async || -> Result<(), Disconnected> {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             receiver.wait_connection().await;
             loop {
-                let _ = receiver.read_packet(&mut reciever_buf).await.unwrap();
+                let _ = receiver.read_packet(&mut reciever_buf).await?;
                 in_pipe.write_all(&mut reciever_buf[..]).await;
             }
         };
 
-        join(out_fut, reciever_fut).await;
+        loop {
+            let _ = join(out_fut(), reciever_fut()).await;
+        }
     }
 }
 
