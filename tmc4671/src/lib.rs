@@ -105,6 +105,7 @@ where
     O: OutputPin,
     P: InputPin,
 {
+    enabled: bool,
     /// The interface to communicate with the device
     interface: embedded_interfaces::spi::SpiDeviceAsync<I>,
     command_rx: TMCCommandReceiver<'a>,
@@ -134,6 +135,7 @@ where
         brake_pin: O,
     ) -> Self {
         Self {
+            enabled: false,
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
             command_rx: command_rx,
             response_tx: response_tx,
@@ -217,10 +219,12 @@ where
                 match cmd {
                     TMCCommand::Enable => {
                         info!("TMC Command {}", cmd);
+                        self.enabled = true;
                         let _ = self.enable_pin.set_high();
                     }
                     TMCCommand::Disable => {
                         info!("TMC Command {}", cmd);
+                        self.enabled = false;
                         let _ = self.enable_pin.set_low();
                     }
                     TMCCommand::SpiSend(data) => {
@@ -243,7 +247,9 @@ where
                         }
                     }
                     TMCCommand::Move(pos, _vel, _accel) => {
-                        reg!(self.PidPositionTarget = pos);
+                        if self.enabled {
+                            reg!(self.PidPositionTarget = pos);
+                        }
                     }
                 }
             }
