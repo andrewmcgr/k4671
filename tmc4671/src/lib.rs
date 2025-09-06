@@ -146,6 +146,19 @@ where
 
 pub trait TMC4671Register {}
 
+macro_rules! reg {
+    ($($self:ident. $reg:ident = $e:expr);+) => {
+        $(
+        let _ = $self
+            .interface
+            .write_register($reg::default().with_value($e)).await;
+        )+
+    };
+    ($self:ident. $reg:ident) => {
+        $self.interface.read_register::<$reg>()
+    };
+}
+
 impl<'a, I, O, P> TMC4671<'a, I, O, P>
 where
     I: embedded_hal_async::spi::SpiDevice,
@@ -161,10 +174,8 @@ where
             <embedded_interfaces::spi::SpiDeviceAsync<I> as RegisterInterfaceAsync>::BusError,
         >,
     > {
-        self.interface
-            .write_register(ChipinfoAddr::default().with_value(Chipinfo::ChipinfoSiType))
-            .await?;
-        let res = self.interface.read_register::<ChipinfoData>().await?;
+        reg!(self.ChipinfoAddr = Chipinfo::ChipinfoSiType);
+        let res = reg!(self.ChipinfoData).await?;
         if res.read_value() == registers::DEVICE_ID_VALID {
             return Ok(());
         } else {
@@ -206,10 +217,7 @@ where
                         }
                     }
                     TMCCommand::Move(pos, _vel, _accel) => {
-                        let _ = self
-                            .interface
-                            .write_register(PidPositionTarget::default().with_value(pos))
-                            .await;
+                        reg!(self.PidPositionTarget = pos);
                     }
                 }
             }
