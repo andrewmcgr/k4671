@@ -193,11 +193,20 @@ where
         >,
     > {
         let res = reg!(self.ChipinfoData[ChipinfoAddr->Chipinfo::ChipinfoSiType]).await?;
-        if res.read_value() == registers::DEVICE_ID_VALID {
-            return Ok(());
-        } else {
+        if res.read_value() != registers::DEVICE_ID_VALID {
             return Err(FaultDetectionError::FaultDetected);
         }
+        let ver = reg!(self.ChipinfoSiVersion[ChipinfoAddr->Chipinfo::ChipinfoSiVersion]).await?;
+        let date = reg!(self.ChipinfoSiDate[ChipinfoAddr->Chipinfo::ChipinfoSiDate]).await?;
+
+        info!(
+            "TMC Detected {:x}, v{}.{}, {:x}",
+            res.read_value(),
+            ver.read_hi(),
+            ver.read_lo(),
+            date.read_value()
+        );
+        Ok(())
     }
 
     // Run device. Never returns.

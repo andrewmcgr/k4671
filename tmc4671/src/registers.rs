@@ -46,7 +46,8 @@ interface_objects! {
   }
 
   register ChipinfoSiVersion(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    hi: u16,
+    lo: u16,
   }
 
   register ChipinfoSiDate(addr = 0x0, mode = rw, size=4) {
