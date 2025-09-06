@@ -122,7 +122,6 @@ pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 fn process_moves(state: &mut State, next_time: Instant) {
-    state.stepper.advance(&mut state.target_queue);
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
@@ -225,7 +224,8 @@ async fn tmc_task(r: TmcResources) {
 
     let mut spi_config = spi::Config::default();
     spi_config.mode = spi::MODE_3;
-    spi_config.frequency = Hertz(1_000_000);
+    spi_config.frequency = Hertz(2_000_000);
+    spi_config.gpio_speed = Speed::VeryHigh;
 
     let spi = spi::Spi::new(r.spi, r.clk, r.mosi, r.miso, r.dma_a, r.dma_b, spi_config);
     let spi_bus = usb_anchor::AnchorMutex::new(spi);

@@ -16,7 +16,7 @@ const CLOCK_FREQ: u32 = 1_000_000;
 #[klipper_command]
 pub fn get_uptime(_context: &mut crate::State) {
     let c = Instant::now().as_micros();
-    debug!("uptime");
+    debug!("uptime {:x}", c);
     klipper_reply!(
         uptime,
         high: u32 = (c >> 32) as u32,
@@ -26,8 +26,9 @@ pub fn get_uptime(_context: &mut crate::State) {
 
 #[klipper_command]
 pub fn get_clock() {
-    klipper_reply!(clock, clock: u32 = (Instant::now().as_micros() & 0xFFFF_FFFF) as u32);
-    debug!("clock");
+    let c = (Instant::now().as_micros() & 0xFFFF_FFFF) as u32;
+    debug!("clock {:x}", c);
+    klipper_reply!(clock, clock: u32 = c);
 }
 
 #[klipper_command]

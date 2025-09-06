@@ -38,7 +38,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(25000),
+            advance: Duration::from_hz(15000),
         }
     }
 
@@ -179,19 +179,19 @@ where
             while let Some(cmd) = self.command_rx.try_receive().ok() {
                 match cmd {
                     TMCCommand::Enable => {
-                        info!("TMC Enable!");
+                        info!("TMC Command {}", cmd);
                         let _ = self.enable_pin.set_high();
                     }
                     TMCCommand::Disable => {
-                        info!("TMC Disable!");
+                        info!("TMC Command {}", cmd);
                         let _ = self.enable_pin.set_low();
                     }
                     TMCCommand::SpiSend(data) => {
-                        info!("TMC SpiSend!");
+                        info!("TMC Command {:x}", cmd);
                         let _ = self.interface.interface.write(&data).await;
                     }
                     TMCCommand::SpiTransfer(data) => {
-                        info!("TMC SpiTransfer!");
+                        info!("TMC Command {:x}", cmd);
                         let mut resp: [u8; 5] = [0; 5];
                         if self
                             .interface
@@ -200,8 +200,9 @@ where
                             .await
                             .is_ok()
                         {
-                            self.response_tx
-                                .publish_immediate(TMCCommandResponse::SpiResponse(resp));
+                            let r = TMCCommandResponse::SpiResponse(resp);
+                            info!("TMC Responds {:x}", r);
+                            self.response_tx.publish_immediate(r);
                         }
                     }
                     TMCCommand::Move(pos, _vel, _accel) => {
