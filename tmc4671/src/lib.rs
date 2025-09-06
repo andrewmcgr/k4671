@@ -147,12 +147,30 @@ where
 pub trait TMC4671Register {}
 
 macro_rules! reg {
+    ($($self:ident. $reg:ident[$addr_reg:ident->$addr:expr] = $e:expr);+) => {
+        $(
+        let _ = $self
+            .interface
+            .write_register($addr_reg::default().with_value($addr)).await;
+        let _ = $self
+            .interface
+            .write_register($reg::default().with_value($e)).await;
+        )+
+    };
     ($($self:ident. $reg:ident = $e:expr);+) => {
         $(
         let _ = $self
             .interface
             .write_register($reg::default().with_value($e)).await;
         )+
+    };
+    ($self:ident. $reg:ident[$addr_reg:ident->$addr:expr]) => {
+        {
+            let _ = $self
+                .interface
+                .write_register($addr_reg::default().with_value($addr)).await;
+            $self.interface.read_register::<$reg>()
+        }
     };
     ($self:ident. $reg:ident) => {
         $self.interface.read_register::<$reg>()
@@ -174,8 +192,7 @@ where
             <embedded_interfaces::spi::SpiDeviceAsync<I> as RegisterInterfaceAsync>::BusError,
         >,
     > {
-        reg!(self.ChipinfoAddr = Chipinfo::ChipinfoSiType);
-        let res = reg!(self.ChipinfoData).await?;
+        let res = reg!(self.ChipinfoData[ChipinfoAddr->Chipinfo::ChipinfoSiType]).await?;
         if res.read_value() == registers::DEVICE_ID_VALID {
             return Ok(());
         } else {
