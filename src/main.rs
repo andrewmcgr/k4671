@@ -11,10 +11,12 @@ use embassy_futures::join::join;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
+use embassy_stm32::peripherals::TIM3;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
-use embassy_sync::signal::Signal;
+use embassy_stm32::{timer, timer::qei};
+use embassy_sync::{once_lock::OnceLock, signal::Signal};
 use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
@@ -56,6 +58,12 @@ assign_resources! {
         otg: USB_OTG_FS,
         dplus: PA12,
         dminus: PA11,
+    }
+    encoder: EncoderResources {
+        enc_a: PC6,
+        enc_b: PC7,
+        enc_z: PD15,
+        timer: TIM3,
     }
 }
 
@@ -268,6 +276,17 @@ unsafe fn UART5() {
     EXECUTOR_MED.on_interrupt()
 }
 
+type OnceLockQei = OnceLock<qei::Qei<'static, TIM3>>;
+static ENCODER: OnceLockQei = OnceLockQei::new();
+
+#[embassy_executor::task]
+async fn encoder_mon() {
+    loop {
+        info!("Encoder pos {}", ENCODER.get().await.count());
+        Timer::after_millis(300).await;
+    }
+}
+
 #[entry]
 fn main() -> ! {
     let mut config = Config::default();
@@ -297,6 +316,12 @@ fn main() -> ! {
 
     info!("Hello World!");
 
+    let _ = ENCODER.init(qei::Qei::new(
+        r.encoder.timer,
+        qei::QeiPin::new(r.encoder.enc_a),
+        qei::QeiPin::new(r.encoder.enc_b),
+    ));
+
     /*
     STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
     by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
@@ -316,6 +341,7 @@ fn main() -> ! {
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     unwrap!(spawner.spawn(blink(r.led)));
+    unwrap!(spawner.spawn(encoder_mon()));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
