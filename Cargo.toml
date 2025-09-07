@@ -13,8 +13,6 @@ embassy-usb = { git = "https://github.com/embassy-rs/embassy.git", features = ["
 embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
-derive_builder = { version = "0.20.2", default-features = false, features = ["alloc"]}
-embedded-alloc = { version = "0.6.0" }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }

@@ -32,12 +32,6 @@ mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
 
-extern crate alloc;
-use embedded_alloc::TlsfHeap as Heap;
-
-#[global_allocator]
-static HEAP: Heap = Heap::empty();
-
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
@@ -171,7 +165,7 @@ fn process_moves(state: &mut State, next_time: Instant) {
     );
 }
 
-async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) -> ! {
+async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut state = State::new();
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
     let mut receiver_buf: RxBuf = RxBuf::new();
@@ -295,12 +289,6 @@ async fn encoder_mon() {
 
 #[entry]
 fn main() -> ! {
-    unsafe {
-        const HEAP_SIZE: usize = 1024;
-        static mut HEAP_MEM: [::core::mem::MaybeUninit<u8>; HEAP_SIZE] =
-            [::core::mem::MaybeUninit::uninit(); HEAP_SIZE];
-        HEAP.init(&raw mut HEAP_MEM as usize, HEAP_SIZE)
-    }
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
