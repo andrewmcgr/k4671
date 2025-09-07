@@ -1,5 +1,6 @@
 #![no_std]
 use defmt::*;
+use derive_builder::Builder;
 use embedded_interfaces::TransportError;
 use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
@@ -95,6 +96,10 @@ pub enum FaultDetectionError<BusError> {
     #[error("fault detected")]
     FaultDetected,
 }
+
+// #[derive(Debug, defmt::Format, Copy, Clone, Builder)]
+// #[builder(no_std)]
+// pub struct TMC4671Config {}
 
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
 ///
