@@ -12,7 +12,7 @@ embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal = { version = "1.0" }
 defmt = "1.0.1"
-bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics"] }
+bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics", "aarch64_simd", "pod_saturating", "must_cast"] }
 thiserror = { version = "2.0.12", default-features = false }
 
 [features]
