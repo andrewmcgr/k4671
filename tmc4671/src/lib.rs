@@ -12,6 +12,8 @@ use embassy_sync::{channel, pubsub};
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 
+use const_builder::ConstBuilder;
+
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;
@@ -94,6 +96,91 @@ pub enum FaultDetectionError<BusError> {
     /// A fault was detected. Read the FaultStatus register for details.
     #[error("fault detected")]
     FaultDetected,
+}
+
+#[derive(ConstBuilder)]
+pub struct TMC4671Config {
+    voltage_scale: f32,
+    #[builder(default = 15e3)]
+    pwm_freq_target: f32,
+    #[builder(default = 2)]
+    phases: u8,
+    #[builder(default = 50)]
+    n_pole_pairs: u8,
+    #[builder(default = 10)]
+    pwm_bbm_l: u32,
+    #[builder(default = 10)]
+    pwm_bbm_h: u32,
+    #[builder(default = 7)]
+    pwm_chop: u32,
+    #[builder(default = 1)]
+    pwm_sv: u32,
+    #[builder(default = 3)]
+    motor_type: u32,
+    #[builder(default = 0)]
+    adc_i_ux_select: u32,
+    #[builder(default = 2)]
+    adc_i_v_select: u32,
+    #[builder(default = 1)]
+    adc_i_wy_select: u32,
+    #[builder(default = 0)]
+    adc_i0_select: u32,
+    #[builder(default = 1)]
+    adc_i1_select: u32,
+    #[builder(default = 1)] // 120 degree analog hall
+    aenc_deg: u32,
+    #[builder(default = 1)] // 120 degree analog hall
+    aenc_ppr: u32,
+    #[builder(default = 0)]
+    abn_apol: u32,
+    #[builder(default = 0)]
+    abn_bpol: u32,
+    #[builder(default = 0)]
+    abn_npol: u32,
+    #[builder(default = 0)]
+    abn_use_abn_as_n: u32,
+    #[builder(default = 0)]
+    abn_cln: u32,
+    #[builder(default = 0)]
+    abn_direction: u32,
+    #[builder(default = 4000)]
+    abn_decoder_ppr: u32,
+    #[builder(default = 0)]
+    hall_interp: u32,
+    #[builder(default = 1)]
+    hall_sync: u32,
+    #[builder(default = 0)]
+    hall_polarity: u32,
+    #[builder(default = 0)]
+    hall_dir: u32,
+    #[builder(default = 0xAAAA)]
+    hall_dphi_max: u32,
+    #[builder(default = 0)]
+    hall_phi_e_offset: u32,
+    #[builder(default = 2)]
+    hall_blank: u32,
+    #[builder(default = 3)]
+    phi_e_selection: u32,
+    #[builder(default = 9)]
+    position_selection: u32,
+    #[builder(default = 3)]
+    velocity_selection: u32,
+    #[builder(default = 1)] // PWM frequency velocity meter
+    velocity_meter_selection: u32,
+    #[builder(default = 0)] // Advanced PID samples position at fPWM
+    mode_pid_smpl: u32,
+    #[builder(default = 1)] // Advanced PID mode
+    mode_pid_type: u32,
+    #[builder(default = 31500)] // Voltage limit, 32768 = Vm
+    pidout_uq_ud_limits: u32,
+    #[builder(default=-0x10000000)]
+    pid_position_limit_low: i32,
+    #[builder(default = 0x10000000)]
+    pid_position_limit_high: i32,
+    #[builder(default = 0x10000000)]
+    pid_velocity_limit: u32,
+    #[builder(default = 0)] // Feed forward off
+    mode_ff: u32,
 }
 
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
