@@ -34,6 +34,7 @@ static_cell = { version = "2.1.1", features = ["nightly"] }
 chrono = { version = "^0.4", default-features = false}
 assign-resources = "0.5.0"
 anchor = { git = "https://github.com/Annex-Engineering/anchor.git" }
+maybe-async-cfg = "0.2"
 
 [build-dependencies]
 anchor_codegen = { git = "https://github.com/Annex-Engineering/anchor.git" }

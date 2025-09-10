@@ -1,5 +1,6 @@
 #![no_std]
 use defmt::*;
+use embedded_devices_derive::forward_register_fns;
 use embedded_interfaces::TransportError;
 use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
@@ -75,8 +76,8 @@ impl TimeIterator for TMCTimeIterator {
 pub enum TMCCommand {
     Enable,
     Disable,
-    SpiSend([u8; 5]),
-    SpiTransfer([u8; 5]),
+    // SpiSend([u8; 5]),
+    // SpiTransfer([u8; 5]),
     Move(i32, f32, f32),
 }
 
@@ -99,7 +100,9 @@ pub enum FaultDetectionError<BusError> {
 }
 
 #[derive(ConstBuilder)]
+#[builder(default)]
 pub struct TMC4671Config {
+    #[builder(default = 43.64)]
     voltage_scale: f32,
     #[builder(default = 15e3)]
     pwm_freq_target: f32,
@@ -179,22 +182,28 @@ pub struct TMC4671Config {
     pid_position_limit_high: i32,
     #[builder(default = 0x10000000)]
     pid_velocity_limit: u32,
-    #[builder(default = 0)] // Feed forward off
-    mode_ff: u32,
 }
 
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
 ///
 /// For a full description and usage examples, refer to the [module documentation](self).
+#[maybe_async_cfg::maybe(
+    idents(
+        hal(sync = "embedded_hal", async = "embedded_hal_async"),
+        RegisterInterface
+    ),
+    sync(feature = "sync"),
+    async(feature = "async")
+)]
 pub struct TMC4671<'a, I, O, P>
 where
-    I: embedded_hal_async::spi::SpiDevice,
+    I: embedded_interfaces::registers::RegisterInterface,
     O: OutputPin,
     P: InputPin,
 {
     enabled: bool,
     /// The interface to communicate with the device
-    interface: embedded_interfaces::spi::SpiDeviceAsync<I>,
+    interface: I,
     command_rx: TMCCommandReceiver<'a>,
     response_tx: TMCResponsePublisher<'a>,
     enable_pin: O,
@@ -202,14 +211,19 @@ where
     brake_pin: O,
 }
 
-impl<'a, I, O, P> TMC4671<'a, I, O, P>
+#[maybe_async_cfg::maybe(
+    idents(hal(sync = "embedded_hal", async = "embedded_hal_async"), SpiDevice),
+    sync(feature = "sync"),
+    async(feature = "async")
+)]
+impl<'a, I, O, P> TMC4671<'a, embedded_interfaces::spi::SpiDevice<I>, O, P>
 where
-    I: embedded_hal_async::spi::SpiDevice,
+    I: hal::spi::r#SpiDevice,
     O: OutputPin,
     P: InputPin,
 {
     /// Initializes a new device from the specified SPI device.
-    /// This consumes the SPI device `I`.
+    /// This consumes the SPI device `I`.``
     ///
     /// The device supports SPI mode 3.
     #[inline]
@@ -239,63 +253,82 @@ macro_rules! reg {
     ($($self:ident. $reg:ident[$addr_reg:ident->$addr:expr] = $e:expr);+) => {
         $(
         let _ = $self
-            .interface
             .write_register($addr_reg::default().with_value($addr)).await;
         let _ = $self
-            .interface
             .write_register($reg::default().with_value($e)).await;
         )+
     };
     ($($self:ident. $reg:ident = $e:expr);+) => {
         $(
         let _ = $self
-            .interface
             .write_register($reg::default().with_value($e)).await;
         )+
     };
     ($self:ident. $reg:ident[$addr_reg:ident->$addr:expr]) => {
         {
             let _ = $self
-                .interface
                 .write_register($addr_reg::default().with_value($addr)).await;
-            $self.interface.read_register::<$reg>()
+            $self.read_register::<$reg>()
         }
     };
     ($self:ident. $reg:ident) => {
-        $self.interface.read_register::<$reg>()
+        $self.read_register::<$reg>()
     };
 }
 
+#[forward_register_fns]
+#[maybe_async_cfg::maybe(
+    idents(
+        hal(sync = "embedded_hal", async = "embedded_hal_async"),
+        RegisterInterface
+    ),
+    sync(feature = "sync"),
+    async(feature = "async")
+)]
 impl<'a, I, O, P> TMC4671<'a, I, O, P>
 where
-    I: embedded_hal_async::spi::SpiDevice,
+    I: embedded_interfaces::registers::RegisterInterface,
     O: OutputPin,
     P: InputPin,
 {
     //// Detect a device
-    pub async fn init(
-        &mut self,
-    ) -> Result<
-        (),
-        FaultDetectionError<
-            <embedded_interfaces::spi::SpiDeviceAsync<I> as RegisterInterfaceAsync>::BusError,
-        >,
-    > {
-        let res = reg!(self.ChipinfoData[ChipinfoAddr->Chipinfo::ChipinfoSiType]).await?;
-        if res.read_value() != registers::DEVICE_ID_VALID {
+    pub async fn ident(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        let _ = self
+            .write_register(ChipinfoAddr::default().with_chipinfo_addr(Chipinfo::ChipinfoSiType))
+            .await;
+        let typ = self
+            .read_register::<ChipinfoSiType>()
+            .await?
+            .read_chipinfo_si_type();
+        if typ != DEVICE_ID_VALID {
             return Err(FaultDetectionError::FaultDetected);
         }
-        let ver = reg!(self.ChipinfoSiVersion[ChipinfoAddr->Chipinfo::ChipinfoSiVersion]).await?;
-        let date = reg!(self.ChipinfoSiDate[ChipinfoAddr->Chipinfo::ChipinfoSiDate]).await?;
+        let _ = self
+            .write_register(ChipinfoAddr::default().with_chipinfo_addr(Chipinfo::ChipinfoSiVersion))
+            .await;
+        let ver = self.read_register::<ChipinfoSiVersion>().await?;
+        let _ = self
+            .write_register(ChipinfoAddr::default().with_chipinfo_addr(Chipinfo::ChipinfoSiDate))
+            .await;
+        let date = self.read_register::<ChipinfoSiDate>().await?;
 
         info!(
             "TMC Detected {:x}, v{}.{}, {:x}",
-            res.read_value(),
-            ver.read_hi(),
-            ver.read_lo(),
-            date.read_value()
+            typ,
+            ver.read_chipinfo_si_version_hi(),
+            ver.read_chipinfo_si_version_lo(),
+            date.read_chipinfo_si_date()
         );
         Ok(())
+    }
+
+    pub async fn init(
+        &mut self,
+        cfg: TMC4671Config,
+    ) -> Result<(), FaultDetectionError<I::BusError>> {
+        let _ = self.ident().await?;
+        Ok(())
+        // Configure the device according to cfg
     }
 
     // Run device. Never returns.
@@ -314,28 +347,32 @@ where
                         self.enabled = false;
                         let _ = self.enable_pin.set_low();
                     }
-                    TMCCommand::SpiSend(data) => {
-                        info!("TMC Command {:x}", cmd);
-                        let _ = self.interface.interface.write(&data).await;
-                    }
-                    TMCCommand::SpiTransfer(data) => {
-                        info!("TMC Command {:x}", cmd);
-                        let mut resp: [u8; 5] = [0; 5];
-                        if self
-                            .interface
-                            .interface
-                            .transfer(&mut resp, &data)
-                            .await
-                            .is_ok()
-                        {
-                            let r = TMCCommandResponse::SpiResponse(resp);
-                            info!("TMC Responds {:x}", r);
-                            self.response_tx.publish_immediate(r);
-                        }
-                    }
+                    // TMCCommand::SpiSend(data) => {
+                    //     info!("TMC Command {:x}", cmd);
+                    //     let _ = self.interface.write(&data).await;
+                    // }
+                    // TMCCommand::SpiTransfer(data) => {
+                    //     info!("TMC Command {:x}", cmd);
+                    //     let mut resp: [u8; 5] = [0; 5];
+                    //     if self
+                    //         .interface
+                    //         .interface
+                    //         .transfer(&mut resp, &data)
+                    //         .await
+                    //         .is_ok()
+                    //     {
+                    //         let r = TMCCommandResponse::SpiResponse(resp);
+                    //         info!("TMC Responds {:x}", r);
+                    //         self.response_tx.publish_immediate(r);
+                    //     }
+                    // }
                     TMCCommand::Move(pos, _vel, _accel) => {
                         if self.enabled {
-                            reg!(self.PidPositionTarget = pos);
+                            self.write_register(
+                                PidPositionTarget::default().with_pid_position_target(pos),
+                            )
+                            .await
+                            .ok();
                         }
                     }
                 }

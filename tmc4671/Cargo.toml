@@ -15,6 +15,7 @@ defmt = "1.0.1"
 bytemuck = { version = "1.23.1", features = ["derive", "min_const_generics", "aarch64_simd", "pod_saturating", "must_cast"] }
 thiserror = { version = "2.0.12", default-features = false }
 const-builder = "0.1.3"
+maybe-async-cfg = "0.2"
 
 [features]
 default = ["async"]

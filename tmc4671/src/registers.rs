@@ -24,7 +24,7 @@ interface_objects! {
   register_devices [ super::TMC4671 ]
 
   register ChipinfoData(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    chipinfo_data: u32,
   }
 
   enum Chipinfo: u32{32} {
@@ -38,36 +38,36 @@ interface_objects! {
   }
 
   register ChipinfoAddr(addr = 0x1, mode = rw, size=4) {
-    value: Chipinfo = Chipinfo::ChipinfoSiType,
+    chipinfo_addr: Chipinfo = Chipinfo::ChipinfoSiType,
   }
 
   register ChipinfoSiType(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    chipinfo_si_type: u32,
   }
 
   register ChipinfoSiVersion(addr = 0x0, mode = rw, size=4) {
-    hi: u16,
-    lo: u16,
+    chipinfo_si_version_hi: u16,
+    chipinfo_si_version_lo: u16,
   }
 
   register ChipinfoSiDate(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    chipinfo_si_date: u32,
   }
 
   register ChipinfoSiTime(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    chipinfo_si_time: u32,
   }
 
   register ChipinfoSiVariant(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    chipinfo_si_variant: u32,
   }
 
   register ChipinfoSiBuild(addr = 0x0, mode = rw, size=4) {
-    value: u32,
+    chipinfo_si_build: u32,
   }
 
   register AdcRawData(addr = 0x2, mode = rw, size=4) {
-    value: u32,
+    adc_raw_data: u32,
   }
 
   enum AdcRaw: u32{32} {
@@ -79,7 +79,7 @@ interface_objects! {
   }
 
   register AdcRawAddr(addr = 0x3, mode = rw, size=4) {
-    value: AdcRaw = AdcRaw::AdcI1RawAdcI0Raw,
+    adc_raw_addr: AdcRaw = AdcRaw::AdcI1RawAdcI0Raw,
   }
 
   register AdcI1RawAdcI0Raw(addr = 0x2, mode = rw, size=4) {
@@ -116,11 +116,11 @@ interface_objects! {
   }
 
   register DsadcMclkA(addr = 0x5, mode = rw, size=4) {
-    value: u32,
+    dsadc_mclk_a: u32,
   }
 
   register DsadcMclkB(addr = 0x6, mode = rw, size=4) {
-    value: u32,
+    dsadc_mclk_b: u32,
   }
 
   register DsadcMdecBMdecA(addr = 0x7, mode = rw, size=4) {
@@ -213,7 +213,7 @@ interface_objects! {
   }
 
   register PwmMaxcnt(addr = 0x18, mode = rw, size=4) {
-    value: u32,
+    pwm_maxcnt: u32,
   }
 
   register PwmBbmHBbmL(addr = 0x19, mode = rw, size=4) {
@@ -235,7 +235,7 @@ interface_objects! {
   }
 
   register PhiEExt(addr = 0x1c, mode = rw, size=4) {
-    value: u32,
+    phi_e_ext: u32,
   }
 
   register OpenloopMode(addr = 0x1f, mode = rw, size=4) {
@@ -244,19 +244,19 @@ interface_objects! {
   }
 
   register OpenloopAcceleration(addr = 0x20, mode = rw, size=4) {
-    value: u32,
+    openloop_acceleration: u32,
   }
 
   register OpenloopVelocityTarget(addr = 0x21, mode = rw, size=4) {
-    value: i32,
+    openloop_velocity_target: i32,
   }
 
   register OpenloopVelocityActual(addr = 0x22, mode = rw, size=4) {
-    value: i32,
+    openloop_velocity_actual: i32,
   }
 
   register OpenloopPhi(addr = 0x23, mode = rw, size=4) {
-    value: i32,
+    openloop_phi: i32,
   }
 
   register UqUdExt(addr = 0x24, mode = rw, size=4) {
@@ -275,15 +275,15 @@ interface_objects! {
   }
 
   register AbnDecoderPpr(addr = 0x26, mode = rw, size=4) {
-    value: u32,
+    abn_decoder_ppr: u32,
   }
 
   register AbnDecoderCount(addr = 0x27, mode = rw, size=4) {
-    value: u32,
+    abn_decoder_count: u32,
   }
 
   register AbnDecoderCountN(addr = 0x28, mode = rw, size=4) {
-    value: u32,
+    abn_decoder_count_n: u32,
   }
 
   register AbnDecoderPhiEPhiMOffset(addr = 0x29, mode = rw, size=4) {
@@ -307,23 +307,23 @@ interface_objects! {
   }
 
   register Abn2DecoderPpr(addr = 0x2d, mode = rw, size=4) {
-    value: u32,
+    abn2_decoder_ppr: u32,
   }
 
   register Abn2DecoderCount(addr = 0x2e, mode = rw, size=4) {
-    value: u32,
+    abn2_decoder_count: u32,
   }
 
   register Abn2DecoderCountN(addr = 0x2f, mode = rw, size=4) {
-    value: u32,
+    abn2_decoder_count_n: u32,
   }
 
   register Abn2DecoderPhiMOffset(addr = 0x30, mode = rw, size=4) {
-    value: u32,
+    abn2_decoder_phi_m_offset: u32,
   }
 
   register Abn2DecoderPhiM(addr = 0x31, mode = rw, size=4) {
-    value: u32,
+    abn2_decoder_phi_m: u32,
   }
 
   register HallMode(addr = 0x33, mode = rw, size=4) {
@@ -356,7 +356,7 @@ interface_objects! {
   }
 
   register HallDphiMax(addr = 0x38, mode = rw, size=4) {
-    value: u32,
+    hall_dphi_max: u32,
   }
 
   register HallPhiEInterpolatedPhiE(addr = 0x39, mode = rw, size=4) {
@@ -365,7 +365,7 @@ interface_objects! {
   }
 
   register HallPhiM(addr = 0x3a, mode = rw, size=4) {
-    value: u32,
+    hall_phi_m: u32,
   }
 
   register AencDecoderMode(addr = 0x3b, mode = rw, size=4) {
@@ -375,19 +375,19 @@ interface_objects! {
   }
 
   register AencDecoderNThreshold(addr = 0x3c, mode = rw, size=4) {
-    value: u32,
+    aenc_decoder_n_threshold: u32,
   }
 
   register AencDecoderPhiARaw(addr = 0x3d, mode = rw, size=4) {
-    value: u32,
+    aenc_decoder_phi_a_raw: u32,
   }
 
   register AencDecoderPhiAOffset(addr = 0x3e, mode = rw, size=4) {
-    value: u32,
+    aenc_decoder_phi_a_offset: u32,
   }
 
   register AencDecoderPhiA(addr = 0x3f, mode = rw, size=4) {
-    value: u32,
+    aenc_decoder_phi_a: u32,
   }
 
   register AencDecoderPpr(addr = 0x40, mode = rw, size=4) {
@@ -396,11 +396,11 @@ interface_objects! {
   }
 
   register AencDecoderCount(addr = 0x41, mode = rw, size=4) {
-    value: u32,
+    aenc_decoder_count: u32,
   }
 
   register AencDecoderCountN(addr = 0x42, mode = rw, size=4) {
-    value: u32,
+    aenc_decoder_count_n: u32,
   }
 
   register AencDecoderPhiEPhiMOffset(addr = 0x45, mode = rw, size=4) {
@@ -414,7 +414,7 @@ interface_objects! {
   }
 
   register ConfigData(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_data: u32,
   }
 
   enum Config: u32{32} {
@@ -454,141 +454,103 @@ interface_objects! {
   }
 
   register ConfigAddr(addr = 0x4e, mode = rw, size=4) {
-    value: Config = Config::ConfigBiquadXA1,
+    config_addr: Config = Config::ConfigBiquadXA1,
   }
 
   register ConfigBiquadXA1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_xa1: u32,
   }
 
   register ConfigBiquadXA2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_xa2: u32,
   }
 
   register ConfigBiquadXB0(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_xb0: u32,
   }
-
   register ConfigBiquadXB1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_xb1: u32,
   }
-
   register ConfigBiquadXB2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_xb2: u32,
   }
-
   register ConfigBiquadXEnable(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_x_enable: u32,
   }
-
   register ConfigBiquadVA1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_va1: u32,
   }
-
   register ConfigBiquadVA2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_va2: u32,
   }
-
   register ConfigBiquadVB0(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_vb0: u32,
   }
-
   register ConfigBiquadVB1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_vb1: u32,
   }
-
   register ConfigBiquadVB2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_vb2: u32,
   }
-
   register ConfigBiquadVEnable(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_v_enable: u32,
   }
-
   register ConfigBiquadTA1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_ta1: u32,
   }
-
   register ConfigBiquadTA2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_ta2: u32,
   }
-
   register ConfigBiquadTB0(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_tb0: u32,
   }
-
   register ConfigBiquadTB1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_tb1: u32,
   }
-
   register ConfigBiquadTB2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_tb2: u32,
   }
-
   register ConfigBiquadTEnable(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_t_enable: u32,
   }
-
   register ConfigBiquadFA1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_fa1: u32,
   }
-
   register ConfigBiquadFA2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_fa2: u32,
   }
-
   register ConfigBiquadFB0(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_fb0: u32,
   }
-
   register ConfigBiquadFB1(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_fb1: u32,
   }
-
   register ConfigBiquadFB2(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_fb2: u32,
   }
-
   register ConfigBiquadFEnable(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_biquad_f_enable: u32,
   }
-
   register FeedForwardVelocityGain(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    feed_forward_velocity_gain: u32,
   }
-
   register FeedForwardVelocityFilterConstant(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    feed_forward_velocity_filter_constant: u32,
   }
-
   register FeedForwardTorqueGain(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    feed_forward_torque_gain: u32,
   }
-
   register FeedForwardTorqueFilterConstant(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    feed_forward_torque_filter_constant: u32,
   }
-
   register ConfigRefSwitchConfig(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_ref_switch_config: u32,
   }
-
   register ConfigSinglePinIfStatusCfg(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
+    config_single_pin_if_status_cfg: u32,
   }
-
   register ConfigSinglePinIfScaleOffset(addr = 0x4d, mode = rw, size=4) {
-    value: u32,
-  }
-
-  register ConfigAdvancedPiRepresent(addr = 0x4d, mode = rw, size=4) {
-    current_in: bool[0],
-    current_pn: bool[1],
-    velocity_in: bool[2],
-    velocity_pn: bool[3],
-    position_in: bool[4],
-    position_pn: bool[5],
-    _: u32[6..32],
+    config_single_pin_if_scale_offset: u32,
   }
 
   register VelocitySelection(addr = 0x50, mode = rw, size=4) {
@@ -598,15 +560,13 @@ interface_objects! {
   }
 
   register PositionSelection(addr = 0x51, mode = rw, size=4) {
-    value: u32,
+    position_selection: u32,
   }
-
   register PhiESelection(addr = 0x52, mode = rw, size=4) {
-    value: u32,
+    phi_e_selection: u32,
   }
-
   register PhiE(addr = 0x53, mode = rw, size=4) {
-    value: i16,
+    phi_e: i16,
     _: u16[16..32],
   }
 
@@ -631,25 +591,21 @@ interface_objects! {
   }
 
   register PidoutUqUdLimits(addr = 0x5d, mode = rw, size=4) {
-    value: u16,
+    pidout_uq_ud_limits: u16,
     _: u16[16..32],
   }
-
   register PidTorqueFluxLimits(addr = 0x5e, mode = rw, size=4) {
-    value: u16,
+    pid_torque_flux_limits: u16,
     _: u16[16..32],
   }
-
   register PidVelocityLimit(addr = 0x60, mode = rw, size=4) {
-    value: u32,
+    pid_velocity_limit: u32,
   }
-
   register PidPositionLimitLow(addr = 0x61, mode = rw, size=4) {
-    value: i32,
+    pid_position_limit_low: i32,
   }
-
   register PidPositionLimitHigh(addr = 0x62, mode = rw, size=4) {
-    value: i32,
+    pid_position_limit_high: i32,
   }
 
   register ModeRampModeMotion(addr = 0x63, mode = rw, size=4) {
@@ -671,15 +627,13 @@ interface_objects! {
   }
 
   register PidVelocityTarget(addr = 0x66, mode = rw, size=4) {
-    value: i32,
+    pid_velocity_target: i32,
   }
-
   register PidVelocityOffset(addr = 0x67, mode = rw, size=4) {
-    value: i32,
+    pid_velocity_offset: i32,
   }
-
   register PidPositionTarget(addr = 0x68, mode = rw, size=4) {
-    value: i32,
+    pid_position_target: i32,
   }
 
   register PidTorqueFluxActual(addr = 0x69, mode = rw, size=4) {
@@ -688,15 +642,13 @@ interface_objects! {
   }
 
   register PidVelocityActual(addr = 0x6a, mode = rw, size=4) {
-    value: i32,
+    pid_velocity_actual: i32,
   }
-
   register PidPositionActual(addr = 0x6b, mode = rw, size=4) {
-    value: i32,
+    pid_position_actual: i32,
   }
-
   register PidErrorData(addr = 0x6c, mode = rw, size=4) {
-    value: i32,
+    pid_error_data: i32,
   }
 
   enum PidError: u32{32} {
@@ -716,39 +668,32 @@ interface_objects! {
   }
 
   register PidErrorPidTorqueError(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_torque_error: u32,
   }
-
   register PidErrorPidFluxError(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_flux_error: u32,
   }
-
   register PidErrorPidVelocityError(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_velocity_error: u32,
   }
-
   register PidErrorPidPositionError(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_position_error: u32,
   }
-
   register PidErrorPidTorqueErrorSum(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_torque_error_sum: u32,
   }
-
   register PidErrorPidFluxErrorSum(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_flux_error_sum: u32,
   }
-
   register PidErrorPidVelocityErrorSum(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_velocity_error_sum: u32,
   }
-
   register PidErrorPidPositionErrorSum(addr = 0x6c, mode = rw, size=4) {
-    value: u32,
+    pid_error_pid_position_error_sum: u32,
   }
 
   register InterimData(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_data: u32,
   }
 
   enum Interim: u32{32} {
@@ -797,152 +742,112 @@ interface_objects! {
   }
 
   register InterimPidinTargetTorque(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidin_target_torque: u32,
   }
-
   register InterimPidinTargetFlux(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidin_target_flux: u32,
   }
-
   register InterimPidinTargetVelocity(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidin_target_velocity: u32,
   }
-
   register InterimPidinTargetPosition(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidin_target_position: u32,
   }
-
   register InterimPidoutTargetTorque(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidout_target_torque: u32,
   }
-
   register InterimPidoutTargetFlux(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidout_target_flux: u32,
   }
-
   register InterimPidoutTargetVelocity(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidout_target_velocity: u32,
   }
-
   register InterimPidoutTargetPosition(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pidout_target_position: u32,
   }
-
   register InterimFocIwyIux(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_iwy_iux: u32,
   }
-
   register InterimFocIv(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_iv: u32,
   }
-
   register InterimFocIbIa(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_ib_ia: u32,
   }
-
   register InterimFocIqId(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_iq_id: u32,
   }
-
   register InterimFocUqUd(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_uq_ud: u32,
   }
-
   register InterimFocUqUdLimited(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_uq_ud_limited: u32,
   }
-
   register InterimFocUbUa(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_ub_ua: u32,
   }
-
   register InterimFocUwyUux(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_uwy_uux: u32,
   }
-
   register InterimFocUv(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_foc_uv: u32,
   }
-
-  register InterimPwmWyUx(addr = 0x6e, mode = rw, size=4) {
-    interim_pwm_ux: u16[0..16],
-    interim_pwm_wy: u16[16..32],
-  }
-
   register InterimPwmUv(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pwm_uv: u32,
   }
-
   register InterimAdcI1I0(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_adc_i1_i0: u32,
   }
-
   register InterimPidTorqueTargetFluxTargetTorqueActualFluxActualDiv256(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_torque_target_flux_target_torque_actual_flux_actual_div256: u32,
   }
-
   register InterimPidTorqueTargetTorqueActual(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_torque_target_torque_actual: u32,
   }
-
   register InterimPidFluxTargetFluxActual(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_flux_target_flux_actual: u32,
   }
-
   register InterimPidVelocityTargetVelocityActualDiv256(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_velocity_target_velocity_actual_div256: u32,
   }
-
   register InterimPidVelocityTargetVelocityActual(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_velocity_target_velocity_actual: u32,
   }
-
   register InterimPidPositionTargetPositionActualDiv256(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_position_target_position_actual_div256: u32,
   }
-
   register InterimPidPositionTargetPositionActual(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_pid_position_target_position_actual: u32,
   }
-
   register InterimFfVelocity(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_ff_velocity: u32,
   }
-
   register InterimFfTorque(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_ff_torque: u32,
   }
-
   register InterimActualVelocityPptm(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_actual_velocity_pptm: u32,
   }
-
   register InterimRefSwitchStatus(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_ref_switch_status: u32,
   }
-
   register InterimHomePosition(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_home_position: u32,
   }
-
   register InterimLeftPosition(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_left_position: u32,
   }
-
   register InterimRightPosition(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_right_position: u32,
   }
-
   register InterimSinglePinIfPwmDutyCycleTorqueTarget(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_single_pin_if_pwm_duty_cycle_torque_target: u32,
   }
-
   register InterimSinglePinIfVelocityTarget(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_single_pin_if_velocity_target: u32,
   }
-
   register InterimSinglePinIfPositionTarget(addr = 0x6e, mode = rw, size=4) {
-    value: u32,
+    interim_single_pin_if_position_target: u32,
   }
 
   register AdcVmLimits(addr = 0x75, mode = rw, size=4) {
@@ -951,23 +856,19 @@ interface_objects! {
   }
 
   register Tmc4671InputsRaw(addr = 0x76, mode = rw, size=4) {
-    value: u32,
+    tmc4671_inputs_raw: u32,
   }
-
   register Tmc4671OutputsRaw(addr = 0x77, mode = rw, size=4) {
-    value: u32,
+    tmc4671_outputs_raw: u32,
   }
-
   register StepWidth(addr = 0x78, mode = rw, size=4) {
-    value: u32,
+    step_width: u32,
   }
-
   register UartBps(addr = 0x79, mode = rw, size=4) {
-    value: u32,
+    uart_bps: u32,
   }
-
   register GpioDsadciConfig(addr = 0x7b, mode = rw, size=4) {
-    value: u32,
+    gpio_dsadci_config: u32,
   }
 
   register StatusFlags(addr = 0x7c, mode = rw, size=4) {

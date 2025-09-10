@@ -21,7 +21,7 @@ use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
-use tmc4671::{self, CS, TimeIterator};
+use tmc4671::{self, TMC4671Config, TimeIterator, CS};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
@@ -242,7 +242,7 @@ async fn tmc_task(r: TmcResources) {
     let flag = Input::new(r.flag, Pull::Up);
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
-    let mut tmc = tmc4671::TMC4671::new_spi(
+    let mut tmc = tmc4671::TMC4671Async::new_spi(
         spi_dev,
         TMC_CMD.dyn_receiver(),
         TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
@@ -253,7 +253,8 @@ async fn tmc_task(r: TmcResources) {
     LED_STATE.signal(LedState::Error);
     Timer::after_millis(300).await;
 
-    match tmc.init().await {
+    let cfg = TMC4671Config::builder();
+    match tmc.init(cfg.build()).await {
         Ok(_) => LED_STATE.signal(LedState::Waiting),
         Err(_) => LED_STATE.signal(LedState::Error),
     }
