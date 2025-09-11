@@ -386,6 +386,92 @@ where
         Ok(())
     }
 
+    pub async fn sample_adc(&mut self) -> Result<(u16, u16), FaultDetectionError<I::BusError>> {
+        let _ = self
+            .write_register(AdcRawAddr::default().with_adc_raw_addr(AdcRaw::AdcI1RawAdcI0Raw))
+            .await;
+        let mut i0: u32 = 0;
+        let mut i1: u32 = 0;
+        let n: u32 = 100;
+        for _ in 0..n {
+            let regs = self.read_register::<AdcI1RawAdcI0Raw>().await?;
+            i0 += regs.read_adc_i0_raw() as u32;
+            i1 += regs.read_adc_i1_raw() as u32;
+            Timer::after(Duration::from_micros(100)).await;
+        }
+        Ok(((i0 / n) as u16, (i1 / n) as u16))
+    }
+
+    pub async fn sample_vm(&mut self) -> Result<(u16, u16), FaultDetectionError<I::BusError>> {
+        let _ = self
+            .write_register(AdcRawAddr::default().with_adc_raw_addr(AdcRaw::AdcAgpiARawAdcVmRaw))
+            .await;
+        let mut vmh = u16::MAX;
+        let mut vml = 0u16;
+        let n: u32 = 100;
+        for _ in 0..n {
+            let regs = self.read_register::<AdcAgpiARawAdcVmRaw>().await?;
+            let vm = regs.read_adc_vm_raw();
+            if vm > vml {
+                vml = vm;
+            }
+            if vm < vmh {
+                vmh = vm;
+            }
+            Timer::after(Duration::from_micros(100)).await;
+        }
+        Ok((vmh, vml))
+    }
+
+    pub async fn calibrate_adc(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        // Calibrate current ADCs
+        let cfg_adc = self.read_register::<DsAnalogInputStageCfg>().await?;
+        let _ = self
+            .write_register(cfg_adc.with_cfg_adc_i0(0).with_cfg_adc_i1(0))
+            .await;
+        let (i0_offset, i1_offset) = self.sample_adc().await?;
+        info!("TMC ADC Offsets: {}, {}", i0_offset, i1_offset);
+        let _ = self
+            .write_register(
+                AdcI0ScaleOffset::default()
+                    .with_adc_i0_offset(i0_offset)
+                    .with_adc_i0_scale(256),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                AdcI1ScaleOffset::default()
+                    .with_adc_i1_offset(i1_offset)
+                    .with_adc_i1_scale(256),
+            )
+            .await;
+        // Calibrate voltage ADC for brake settings
+        let (vmh, vml) = self.sample_vm().await?;
+        info!("TMC VM Range: {}, {}", vmh, vml);
+        let vmr = vmh - vml;
+        let high: u32 = vmr as u32 / 2 + vmh as u32 + 3;
+        info!("TMC VM Brake Range: {}, {}", high, vmr / 2 + vmh);
+        if high < u16::MAX as u32 {
+            let _ = self
+                .write_register(
+                    AdcVmLimits::default()
+                        .with_adc_vm_limit_high(high as u16)
+                        .with_adc_vm_limit_low(vmr / 2 + vmh),
+                )
+                .await;
+        } else {
+            // What else can we do but disable the brake?
+            let _ = self
+                .write_register(
+                    AdcVmLimits::default()
+                        .with_adc_vm_limit_high(0)
+                        .with_adc_vm_limit_low(0),
+                )
+                .await;
+        }
+        Ok(())
+    }
+
     pub async fn set_motion_mode(
         &mut self,
         mode: MotionMode,
@@ -405,8 +491,13 @@ where
         // Disable the motor
         self.disable_motor().await?;
 
-        // Configure the device according to cfg
+        // Set the PWM frequency
         let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
+
+        // Calibrate the ADCs
+        let _ = self.calibrate_adc().await?;
+
+        // Configure the device according to cfg
         let _ = self
             .write_register(
                 PwmBbmHBbmL::default()
