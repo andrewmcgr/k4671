@@ -143,7 +143,7 @@ interface_objects! {
     adc_i1_select: u8[8..16],
     _: u8[16..24],
     adc_i_ux_select: u8[24..26],
-    adc_iv_select: u8[26..28],
+    adc_i_v_select: u8[26..28],
     adc_i_wy_select: u8[28..30],
     _: u8[30..32],
   }
@@ -355,7 +355,7 @@ interface_objects! {
     hall_phi_e_offset: u16[16..32],
   }
 
-  register HallDphiMax(addr = 0x38, mode = rw, size=4) {
+  register HallDPhiMax(addr = 0x38, mode = rw, size=4) {
     hall_dphi_max: u32,
   }
 
@@ -554,9 +554,9 @@ interface_objects! {
   }
 
   register VelocitySelection(addr = 0x50, mode = rw, size=4) {
-    velocity_mode_selection: u8[0..8],
-    velocity_meter_selection: u8[8..16],
-    _: u16[16..32],
+    velocity_selection: u8[0..8],
+    velocity_meter_selection: bool[8],
+    _: u16[9..32],
   }
 
   register PositionSelection(addr = 0x51, mode = rw, size=4) {

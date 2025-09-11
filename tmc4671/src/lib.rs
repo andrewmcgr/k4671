@@ -1,6 +1,7 @@
 #![no_std]
 use defmt::*;
 use embedded_devices_derive::forward_register_fns;
+use embedded_hal::pwm;
 use embedded_interfaces::TransportError;
 use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
@@ -25,6 +26,9 @@ pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>
 pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
 
 pub mod registers;
+
+// The 4671 has a 25 MHz external clock
+const TMC_FREQUENCY: f32 = 25000000.0;
 
 pub trait TimeIterator {
     fn next(&mut self) -> Instant;
@@ -102,6 +106,12 @@ pub enum FaultDetectionError<BusError> {
 #[derive(ConstBuilder)]
 #[builder(default)]
 pub struct TMC4671Config {
+    #[builder(default = 1.272)]
+    current_scale_ma_lsb: f32,
+    #[builder(default = 0.5)]
+    run_current: f32,
+    #[builder(default = 0.0)]
+    flux_current: f32,
     #[builder(default = 43.64)]
     voltage_scale: f32,
     #[builder(default = 15e3)]
@@ -111,71 +121,71 @@ pub struct TMC4671Config {
     #[builder(default = 50)]
     n_pole_pairs: u8,
     #[builder(default = 10)]
-    pwm_bbm_l: u32,
+    pwm_bbm_l: u8,
     #[builder(default = 10)]
-    pwm_bbm_h: u32,
-    #[builder(default = 7)]
-    pwm_chop: u32,
-    #[builder(default = 1)]
-    pwm_sv: u32,
-    #[builder(default = 3)]
-    motor_type: u32,
-    #[builder(default = 0)]
-    adc_i_ux_select: u32,
+    pwm_bbm_h: u8,
+    #[builder(default = true)]
+    pwm_sv: bool,
     #[builder(default = 2)]
-    adc_i_v_select: u32,
+    motor_type: u8,
+    #[builder(default = 0)]
+    adc_i_ux_select: u8,
+    #[builder(default = 2)]
+    adc_i_v_select: u8,
     #[builder(default = 1)]
-    adc_i_wy_select: u32,
+    adc_i_wy_select: u8,
     #[builder(default = 0)]
-    adc_i0_select: u32,
+    adc_i0_select: u8,
     #[builder(default = 1)]
-    adc_i1_select: u32,
-    #[builder(default = 1)] // 120 degree analog hall
-    aenc_deg: u32,
-    #[builder(default = 1)] // 120 degree analog hall
-    aenc_ppr: u32,
-    #[builder(default = 0)]
-    abn_apol: u32,
-    #[builder(default = 0)]
-    abn_bpol: u32,
-    #[builder(default = 0)]
-    abn_npol: u32,
-    #[builder(default = 0)]
-    abn_use_abn_as_n: u32,
-    #[builder(default = 0)]
-    abn_cln: u32,
-    #[builder(default = 0)]
-    abn_direction: u32,
+    adc_i1_select: u8,
+    #[builder(default = true)]
+    aenc_deg: bool,
+    #[builder(default = false)]
+    aenc_dir: bool,
+    #[builder(default = 1)]
+    aenc_ppr: u16,
+    #[builder(default = false)]
+    abn_apol: bool,
+    #[builder(default = false)]
+    abn_bpol: bool,
+    #[builder(default = false)]
+    abn_npol: bool,
+    #[builder(default = false)]
+    abn_use_abn_as_n: bool,
+    #[builder(default = false)]
+    abn_cln: bool,
+    #[builder(default = false)]
+    abn_direction: bool,
     #[builder(default = 4000)]
     abn_decoder_ppr: u32,
-    #[builder(default = 0)]
-    hall_interp: u32,
-    #[builder(default = 1)]
-    hall_sync: u32,
-    #[builder(default = 0)]
-    hall_polarity: u32,
-    #[builder(default = 0)]
-    hall_dir: u32,
+    #[builder(default = false)]
+    hall_interp: bool,
+    #[builder(default = true)]
+    hall_sync: bool,
+    #[builder(default = false)]
+    hall_polarity: bool,
+    #[builder(default = false)]
+    hall_dir: bool,
     #[builder(default = 0xAAAA)]
     hall_dphi_max: u32,
     #[builder(default = 0)]
-    hall_phi_e_offset: u32,
+    hall_phi_e_offset: u16,
     #[builder(default = 2)]
-    hall_blank: u32,
+    hall_blank: u16,
     #[builder(default = 3)]
     phi_e_selection: u32,
     #[builder(default = 9)]
     position_selection: u32,
     #[builder(default = 3)]
-    velocity_selection: u32,
-    #[builder(default = 1)] // PWM frequency velocity meter
-    velocity_meter_selection: u32,
+    velocity_selection: u8,
+    #[builder(default = true)] // PWM frequency velocity meter
+    velocity_meter_selection: bool,
     #[builder(default = 0)] // Advanced PID samples position at fPWM
-    mode_pid_smpl: u32,
-    #[builder(default = 1)] // Advanced PID mode
-    mode_pid_type: u32,
+    mode_pid_smpl: u8,
+    #[builder(default = true)] // Advanced PID mode
+    mode_pid_type: bool,
     #[builder(default = 31500)] // Voltage limit, 32768 = Vm
-    pidout_uq_ud_limits: u32,
+    pidout_uq_ud_limits: u16,
     #[builder(default=-0x10000000)]
     pid_position_limit_low: i32,
     #[builder(default = 0x10000000)]
@@ -322,13 +332,169 @@ where
         Ok(())
     }
 
+    pub async fn set_pwm_freq(
+        &mut self,
+        freq: f32,
+    ) -> Result<(), FaultDetectionError<I::BusError>> {
+        let maxcnt = (4.0 * TMC_FREQUENCY / freq) as u32 - 1;
+        let pwmfreq = 4.0 * TMC_FREQUENCY / (maxcnt as f32 + 1.0);
+        info!("TMC PWM Frequency: {} Hz", pwmfreq);
+        let pwmt_ns = maxcnt + 1;
+        let mdec = ((pwmt_ns / 120) - 2) as u16;
+        let _ = self
+            .write_register(PwmMaxcnt::default().with_pwm_maxcnt(maxcnt))
+            .await;
+        let _ = self
+            .write_register(
+                DsadcMdecBMdecA::default()
+                    .with_dsadc_mdec_a(mdec)
+                    .with_dsadc_mdec_b(mdec),
+            )
+            .await;
+        Ok(())
+    }
+
+    pub async fn disable_motor(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        // Turn off the power stage
+        let _ = self.enable_pin.set_low();
+        self.enabled = false;
+        // Set motion mode to stopped
+        let _ = self
+            .write_register(ModeRampModeMotion::default().with_mode_motion(0))
+            .await;
+        // Disable PWM outputs
+        let _ = self
+            .write_register(PwmSvChop::default().with_pwm_sv(false).with_pwm_chop(0))
+            .await;
+        Ok(())
+    }
+
     pub async fn init(
         &mut self,
         cfg: TMC4671Config,
     ) -> Result<(), FaultDetectionError<I::BusError>> {
+        // Check that we have a device
         let _ = self.ident().await?;
-        Ok(())
+
+        // Disable the motor
+        self.disable_motor().await?;
+
         // Configure the device according to cfg
+        let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
+        let _ = self
+            .write_register(
+                PwmBbmHBbmL::default()
+                    .with_pwm_bbm_l(cfg.pwm_bbm_l)
+                    .with_pwm_bbm_h(cfg.pwm_bbm_h),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                PwmSvChop::default()
+                    .with_pwm_sv(cfg.pwm_sv)
+                    .with_pwm_chop(0),
+            )
+            .await;
+        let _ = self
+            .write_register(MotorTypeNPolePairs::default().with_motor_type(cfg.motor_type))
+            .await;
+        let _ = self
+            .write_register(
+                AdcISelect::default()
+                    .with_adc_i_ux_select(cfg.adc_i_ux_select)
+                    .with_adc_i_v_select(cfg.adc_i_v_select)
+                    .with_adc_i_wy_select(cfg.adc_i_wy_select)
+                    .with_adc_i0_select(cfg.adc_i0_select)
+                    .with_adc_i1_select(cfg.adc_i1_select),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                AencDecoderMode::default()
+                    .with_aenc_deg(cfg.aenc_deg)
+                    .with_aenc_dir(cfg.aenc_dir),
+            )
+            .await;
+        let _ = self
+            .write_register(AencDecoderPpr::default().with_aenc_ppr(cfg.aenc_ppr))
+            .await;
+        let _ = self
+            .write_register(
+                AbnDecoderMode::default()
+                    .with_abn_apol(cfg.abn_apol)
+                    .with_abn_bpol(cfg.abn_bpol)
+                    .with_abn_npol(cfg.abn_npol)
+                    .with_abn_use_abn_as_n(cfg.abn_use_abn_as_n)
+                    .with_abn_cln(cfg.abn_cln)
+                    .with_abn_direction(cfg.abn_direction),
+            )
+            .await;
+        let _ = self
+            .write_register(AbnDecoderPpr::default().with_abn_decoder_ppr(cfg.abn_decoder_ppr))
+            .await;
+        let _ = self
+            .write_register(
+                HallMode::default()
+                    .with_hall_interp(cfg.hall_interp)
+                    .with_hall_sync(cfg.hall_sync)
+                    .with_hall_polarity(cfg.hall_polarity)
+                    .with_hall_dir(cfg.hall_dir)
+                    .with_hall_blank(cfg.hall_blank),
+            )
+            .await;
+        let _ = self
+            .write_register(HallDPhiMax::default().with_hall_dphi_max(cfg.hall_dphi_max))
+            .await;
+        let _ = self
+            .write_register(
+                HallPhiEPhiMOffset::default().with_hall_phi_e_offset(cfg.hall_phi_e_offset),
+            )
+            .await;
+        let _ = self
+            .write_register(PhiESelection::default().with_phi_e_selection(cfg.phi_e_selection))
+            .await;
+        let _ = self
+            .write_register(
+                PositionSelection::default().with_position_selection(cfg.position_selection),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                VelocitySelection::default()
+                    .with_velocity_selection(cfg.velocity_selection)
+                    .with_velocity_meter_selection(cfg.velocity_meter_selection),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                ModeRampModeMotion::default()
+                    .with_mode_pid_smpl(cfg.mode_pid_smpl)
+                    .with_mode_pid_type(cfg.mode_pid_type),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                PidoutUqUdLimits::default().with_pidout_uq_ud_limits(cfg.pidout_uq_ud_limits),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                PidPositionLimitLow::default()
+                    .with_pid_position_limit_low(cfg.pid_position_limit_low),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                PidPositionLimitHigh::default()
+                    .with_pid_position_limit_high(cfg.pid_position_limit_high),
+            )
+            .await;
+        let _ = self
+            .write_register(
+                PidVelocityLimit::default().with_pid_velocity_limit(cfg.pid_velocity_limit),
+            )
+            .await;
+        Ok(())
     }
 
     // Run device. Never returns.
