@@ -360,12 +360,38 @@ where
         self.enabled = false;
         // Set motion mode to stopped
         let _ = self
-            .write_register(ModeRampModeMotion::default().with_mode_motion(0))
+            .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode))
             .await;
         // Disable PWM outputs
         let _ = self
             .write_register(PwmSvChop::default().with_pwm_sv(false).with_pwm_chop(0))
             .await;
+        Ok(())
+    }
+
+    pub async fn enable_motor(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        if self.enabled {
+            return Ok(());
+        }
+        // Set motion mode to stopped
+        let _ = self
+            .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode))
+            .await;
+        // Enable PWM outputs, don't change pwm_sv
+        let pwm_sv_chop = self.read_register::<PwmSvChop>().await?;
+        let _ = self.write_register(pwm_sv_chop.with_pwm_chop(7)).await;
+        // Turn on the power stage
+        let _ = self.enable_pin.set_high();
+        self.enabled = true;
+        Ok(())
+    }
+
+    pub async fn set_motion_mode(
+        &mut self,
+        mode: MotionMode,
+    ) -> Result<(), FaultDetectionError<I::BusError>> {
+        let modereg = self.read_register::<ModeRampModeMotion>().await?;
+        let _ = self.write_register(modereg.with_mode_motion(mode)).await;
         Ok(())
     }
 

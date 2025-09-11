@@ -23,6 +23,17 @@ interface_objects! {
 
   register_devices [ super::TMC4671 ]
 
+  #[derive(Default)]
+  enum MotionMode: u8{8} {
+    #[default]
+    0 StoppedMode,
+    1 TorqueMode,
+    2 VelocityMode,
+    3 PositionMode,
+    8 UqUdExtMode,
+    _ Invalid(u8),
+  }
+
   register ChipinfoData(addr = 0x0, mode = rw, size=4) {
     chipinfo_data: u32,
   }
@@ -609,7 +620,7 @@ interface_objects! {
   }
 
   register ModeRampModeMotion(addr = 0x63, mode = rw, size=4) {
-    mode_motion: u8[0..8],
+    mode_motion: MotionMode[0..8],
     mode_pid_smpl: u8[24..31],
     mode_ff: u8[16..24],
     mode_pid_type: bool[31],
