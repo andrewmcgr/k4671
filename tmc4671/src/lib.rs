@@ -219,6 +219,10 @@ where
     enable_pin: O,
     flag_pin: P,
     brake_pin: O,
+    current_scale_ma_lsb: f32,
+    run_current: f32,
+    flux_current: f32,
+    voltage_scale: f32,
 }
 
 #[maybe_async_cfg::maybe(
@@ -253,6 +257,10 @@ where
             enable_pin: enable_pin,
             flag_pin: flag_pin,
             brake_pin: brake_pin,
+            current_scale_ma_lsb: 1.272,
+            run_current: 0.0,
+            flux_current: 0.0,
+            voltage_scale: 43.64,
         }
     }
 }
@@ -449,7 +457,7 @@ where
         let (vmh, vml) = self.sample_vm().await?;
         info!("TMC VM Range: {}, {}", vmh, vml);
         let vmr = vmh - vml;
-        let high: u32 = vmr as u32 / 2 + vmh as u32 + 3;
+        let high: u32 = vmr as u32 / 2 + vmh as u32 + (0.05 * self.voltage_scale + 0.5) as u32;
         info!("TMC VM Brake Range: {}, {}", high, vmr / 2 + vmh);
         if high < u16::MAX as u32 {
             let _ = self
@@ -493,6 +501,12 @@ where
 
         // Set the PWM frequency
         let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
+
+        // Save configuration parameters
+        self.current_scale_ma_lsb = cfg.current_scale_ma_lsb;
+        self.run_current = cfg.run_current;
+        self.flux_current = cfg.flux_current;
+        self.voltage_scale = cfg.voltage_scale;
 
         // Calibrate the ADCs
         let _ = self.calibrate_adc().await?;
