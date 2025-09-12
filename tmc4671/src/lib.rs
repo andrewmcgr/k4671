@@ -480,6 +480,27 @@ where
         Ok(())
     }
 
+    fn calculate_flux_limit(&self, c: f32) -> u16 {
+        let flux = ((c * 1000.0) / self.current_scale_ma_lsb) as u16;
+        if flux > 4095 {
+            4095
+        } else {
+            flux
+        }
+    }
+
+    pub async fn set_current(&mut self, c: f32) -> Result<(), FaultDetectionError<I::BusError>> {
+        let flux = self.calculate_flux_limit(c);
+        let _ = self
+            .write_register(PidTorqueFluxLimits::default().with_pid_torque_flux_limits(flux))
+            .await;
+        Ok(())
+    }
+
+    pub async fn set_flux_current(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        self.set_current(self.flux_current).await
+    }
+
     pub async fn set_motion_mode(
         &mut self,
         mode: MotionMode,
@@ -625,6 +646,9 @@ where
                 PidVelocityLimit::default().with_pid_velocity_limit(cfg.pid_velocity_limit),
             )
             .await;
+
+        // Set the flux current limit
+        let _ = self.set_flux().await?;
         Ok(())
     }
 
