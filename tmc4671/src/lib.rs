@@ -551,6 +551,14 @@ where
         Ok(pos.read_pid_position_actual())
     }
 
+    pub async fn get_adc_currents(
+        &mut self,
+    ) -> Result<(i16, i16, i16), FaultDetectionError<I::BusError>> {
+        let i_u = self.read_register::<AdcIwyIux>().await?;
+        let i_v = self.read_register::<AdcIv>().await?;
+        Ok((i_u.read_adc_iux(), i_u.read_adc_iwy(), i_v.read_adc_iv()))
+    }
+
     pub async fn init(
         &mut self,
         cfg: TMC4671Config,
@@ -771,6 +779,8 @@ where
                             info!("TMC Command {}", cmd);
                             let pos_actual = self.get_pid_position_actual().await.unwrap_or(0);
                             info!("TMC Position actual {}", pos_actual);
+                            let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
+                            info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
                         }
                         self.last_pos = pos;
                         if self.enabled {
