@@ -564,6 +564,16 @@ interface_objects! {
     config_single_pin_if_scale_offset: u32,
   }
 
+  register ConfigAdvancedPiRepresent(addr = 0x4d, mode = rw, size=4) {
+    config_current_i: bool[0],
+    config_current_p: bool[1],
+    config_velocity_i: bool[2],
+    config_velocity_p: bool[3],
+    config_position_i: bool[4],
+    config_position_p: bool[5],
+    _: u32[6..32],
+  }
+
   register VelocitySelection(addr = 0x50, mode = rw, size=4) {
     velocity_selection: u8[0..8],
     velocity_meter_selection: bool[8],

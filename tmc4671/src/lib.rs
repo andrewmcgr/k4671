@@ -1,9 +1,7 @@
 #![no_std]
 use defmt::*;
 use embedded_devices_derive::forward_register_fns;
-use embedded_hal::pwm;
 use embedded_interfaces::TransportError;
-use embedded_interfaces::registers::RegisterInterfaceAsync;
 pub use embedded_interfaces::spi::SpiDeviceAsync;
 use registers::*;
 
@@ -15,6 +13,8 @@ pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 
 use const_builder::ConstBuilder;
+use fixed::types::{I4F12, I8F8};
+use paste::paste;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -223,6 +223,7 @@ where
     run_current: f32,
     flux_current: f32,
     voltage_scale: f32,
+    last_pos: i32,
 }
 
 #[maybe_async_cfg::maybe(
@@ -261,36 +262,54 @@ where
             run_current: 0.0,
             flux_current: 0.0,
             voltage_scale: 43.64,
+            last_pos: 0,
         }
     }
 }
 
 pub trait TMC4671Register {}
 
-macro_rules! reg {
-    ($($self:ident. $reg:ident[$addr_reg:ident->$addr:expr] = $e:expr);+) => {
-        $(
-        let _ = $self
-            .write_register($addr_reg::default().with_value($addr)).await;
-        let _ = $self
-            .write_register($reg::default().with_value($e)).await;
-        )+
-    };
-    ($($self:ident. $reg:ident = $e:expr);+) => {
-        $(
-        let _ = $self
-            .write_register($reg::default().with_value($e)).await;
-        )+
-    };
-    ($self:ident. $reg:ident[$addr_reg:ident->$addr:expr]) => {
-        {
-            let _ = $self
-                .write_register($addr_reg::default().with_value($addr)).await;
-            $self.read_register::<$reg>()
+// macro_rules! reg {
+//     ($($self:ident. $reg:ident[$addr_reg:ident->$addr:expr] = $e:expr);+) => {
+//         $(
+//         let _ = $self
+//             .write_register($addr_reg::default().with_value($addr)).await;
+//         let _ = $self
+//             .write_register($reg::default().with_value($e)).await;
+//         )+
+//     };
+//     ($($self:ident. $reg:ident = $e:expr);+) => {
+//         $(
+//         let _ = $self
+//             .write_register($reg::default().with_value($e)).await;
+//         )+
+//     };
+//     ($self:ident. $reg:ident[$addr_reg:ident->$addr:expr]) => {
+//         {
+//             let _ = $self
+//                 .write_register($addr_reg::default().with_value($addr)).await;
+//             $self.read_register::<$reg>()
+//         }
+//     };
+//     ($self:ident. $reg:ident) => {
+//         $self.read_register::<$reg>()
+//     };
+// }
+
+macro_rules! pid_impl {
+    ($nom:ident) => {
+        paste! {
+            pub async fn [<set_ $nom:lower _filter>](&mut self, p: f32, i: f32)
+            {
+                let _ = self
+                    .write_register(
+                        [<Pid $nom:camel P $nom:camel I> ]::default()
+                            .[<with_pid_ $nom:lower _p>](I8F8::from_num(p).to_bits())
+                            .[<with_pid_ $nom:lower _i>](I4F12::from_num(i).to_bits()),
+                    )
+                    .await;
+            }
         }
-    };
-    ($self:ident. $reg:ident) => {
-        $self.read_register::<$reg>()
     };
 }
 
@@ -482,11 +501,7 @@ where
 
     fn calculate_flux_limit(&self, c: f32) -> u16 {
         let flux = ((c * 1000.0) / self.current_scale_ma_lsb) as u16;
-        if flux > 4095 {
-            4095
-        } else {
-            flux
-        }
+        if flux > 4095 { 4095 } else { flux }
     }
 
     pub async fn set_current(&mut self, c: f32) -> Result<(), FaultDetectionError<I::BusError>> {
@@ -511,6 +526,11 @@ where
         Ok(())
     }
 
+    pid_impl!(flux);
+    pid_impl!(torque);
+    pid_impl!(velocity);
+    pid_impl!(position);
+
     pub async fn init(
         &mut self,
         cfg: TMC4671Config,
@@ -532,6 +552,19 @@ where
 
         // Calibrate the ADCs
         let _ = self.calibrate_adc().await?;
+
+        // Static configuration
+        let _ = self
+            .write_register(
+                ConfigAdvancedPiRepresent::default()
+                    .with_config_current_i(true)
+                    .with_config_current_p(true)
+                    .with_config_velocity_i(true)
+                    .with_config_velocity_p(true)
+                    .with_config_position_i(true)
+                    .with_config_position_p(true),
+            )
+            .await;
 
         // Configure the device according to cfg
         let _ = self
@@ -689,6 +722,10 @@ where
                     //     }
                     // }
                     TMCCommand::Move(pos, _vel, _accel) => {
+                        if self.last_pos != pos {
+                            info!("TMC Command {}", cmd);
+                        }
+                        self.last_pos = pos;
                         if self.enabled {
                             self.write_register(
                                 PidPositionTarget::default().with_pid_position_target(pos),

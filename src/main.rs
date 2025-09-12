@@ -158,11 +158,11 @@ fn process_moves(state: &mut State, next_time: Instant) {
         }
         _ => 0.0,
     };
-    block_on(
-        TMC_CMD
-            .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(target_position, v0, a0)),
-    );
+    // block_on(
+    //     TMC_CMD
+    //         .dyn_sender()
+    //         .send(tmc4671::TMCCommand::Move(target_position, v0, a0)),
+    // );
 }
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
@@ -283,7 +283,12 @@ static ENCODER: OnceLockQei = OnceLockQei::new();
 #[embassy_executor::task]
 async fn encoder_mon() {
     loop {
-        info!("Encoder pos {}", ENCODER.get().await.count());
+        let pos = ENCODER.get().await.count();
+        info!("Encoder pos {}", pos);
+        TMC_CMD
+            .dyn_sender()
+            .send(tmc4671::TMCCommand::Move(pos.into(), 0.0, 0.0))
+            .await;
         Timer::after_millis(300).await;
     }
 }

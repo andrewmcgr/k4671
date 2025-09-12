@@ -84,7 +84,7 @@ pub fn config_digital_out(
     _default_value: u8,
     _max_duration: u32,
 ) {
-    if pin != Pins::Enable.into() {
+    if pin != u8::from(Pins::Enable) {
         return;
     }
     context.stepper.stepper_enable_oid = Some(oid);
