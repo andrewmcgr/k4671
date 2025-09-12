@@ -106,7 +106,7 @@ pub enum FaultDetectionError<BusError> {
 #[derive(ConstBuilder)]
 #[builder(default)]
 pub struct TMC4671Config {
-    #[builder(default = 1.272)]
+    #[builder(default = 1.155)]
     current_scale_ma_lsb: f32,
     #[builder(default = 0.5)]
     run_current: f32,
@@ -119,12 +119,12 @@ pub struct TMC4671Config {
     #[builder(default = 2)]
     phases: u8,
     #[builder(default = 50)]
-    n_pole_pairs: u8,
+    n_pole_pairs: u16,
     #[builder(default = 10)]
     pwm_bbm_l: u8,
     #[builder(default = 10)]
     pwm_bbm_h: u8,
-    #[builder(default = true)]
+    #[builder(default = false)]
     pwm_sv: bool,
     #[builder(default = 2)]
     motor_type: u8,
@@ -176,7 +176,7 @@ pub struct TMC4671Config {
     phi_e_selection: u32,
     #[builder(default = 9)]
     position_selection: u32,
-    #[builder(default = 3)]
+    #[builder(default = 9)]
     velocity_selection: u8,
     #[builder(default = true)] // PWM frequency velocity meter
     velocity_meter_selection: bool,
@@ -192,6 +192,14 @@ pub struct TMC4671Config {
     pid_position_limit_high: i32,
     #[builder(default = 0x10000000)]
     pid_velocity_limit: u32,
+    #[builder(default = (2.82, 0.00277))]
+    pid_position_p_i: (f32, f32),
+    #[builder(default = (1.408, 0.00826))]
+    pid_velocity_p_i: (f32, f32),
+    #[builder(default = (4.879, 0.0571))]
+    pid_torque_p_i: (f32, f32),
+    #[builder(default = (4.879, 0.0571))]
+    pid_flux_p_i: (f32, f32),
 }
 
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
@@ -240,7 +248,7 @@ where
     /// Initializes a new device from the specified SPI device.
     /// This consumes the SPI device `I`.``
     ///
-    /// The device supports SPI mode 3.
+    /// The device supports only SPI mode 3.
     #[inline]
     pub fn new_spi(
         spi: I,
@@ -299,7 +307,7 @@ pub trait TMC4671Register {}
 macro_rules! pid_impl {
     ($nom:ident) => {
         paste! {
-            pub async fn [<set_ $nom:lower _filter>](&mut self, p: f32, i: f32)
+            pub async fn [<set_ $nom:lower _pid>](&mut self, p: f32, i: f32)
             {
                 let _ = self
                     .write_register(
@@ -513,8 +521,8 @@ where
         Ok(())
     }
 
-    pub async fn set_flux_current(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
-        self.set_current(self.flux_current).await
+    pub async fn set_run_current(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        self.set_current(self.run_current).await
     }
 
     pub async fn set_motion_mode(
@@ -567,6 +575,22 @@ where
             .await;
 
         // Configure the device according to cfg
+
+        // Set the PID parameters
+        let _ = self
+            .set_flux_pid(cfg.pid_flux_p_i.0, cfg.pid_flux_p_i.1)
+            .await;
+        let _ = self
+            .set_torque_pid(cfg.pid_torque_p_i.0, cfg.pid_torque_p_i.1)
+            .await;
+        let _ = self
+            .set_velocity_pid(cfg.pid_velocity_p_i.0, cfg.pid_velocity_p_i.1)
+            .await;
+        let _ = self
+            .set_position_pid(cfg.pid_position_p_i.0, cfg.pid_position_p_i.1)
+            .await;
+
+        // Set PWM modes
         let _ = self
             .write_register(
                 PwmBbmHBbmL::default()
@@ -581,9 +605,15 @@ where
                     .with_pwm_chop(0),
             )
             .await;
+        // Set motor parameters
         let _ = self
-            .write_register(MotorTypeNPolePairs::default().with_motor_type(cfg.motor_type))
+            .write_register(
+                MotorTypeNPolePairs::default()
+                    .with_motor_type(cfg.motor_type)
+                    .with_n_pole_pairs(cfg.n_pole_pairs),
+            )
             .await;
+        // Set ADC input config
         let _ = self
             .write_register(
                 AdcISelect::default()
@@ -594,6 +624,7 @@ where
                     .with_adc_i1_select(cfg.adc_i1_select),
             )
             .await;
+        // Set encoder and hall parameters
         let _ = self
             .write_register(
                 AencDecoderMode::default()
@@ -636,6 +667,7 @@ where
                 HallPhiEPhiMOffset::default().with_hall_phi_e_offset(cfg.hall_phi_e_offset),
             )
             .await;
+        // Set encoder selection
         let _ = self
             .write_register(PhiESelection::default().with_phi_e_selection(cfg.phi_e_selection))
             .await;
@@ -651,6 +683,7 @@ where
                     .with_velocity_meter_selection(cfg.velocity_meter_selection),
             )
             .await;
+        // Set advanced PID modes and limits
         let _ = self
             .write_register(
                 ModeRampModeMotion::default()
@@ -681,8 +714,8 @@ where
             )
             .await;
 
-        // Set the flux current limit
-        let _ = self.set_flux_current().await?;
+        // Set the run current
+        let _ = self.set_run_current().await?;
         Ok(())
     }
 
