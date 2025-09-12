@@ -491,6 +491,7 @@ where
 
     pub async fn set_current(&mut self, c: f32) -> Result<(), FaultDetectionError<I::BusError>> {
         let flux = self.calculate_flux_limit(c);
+        info!("TMC Flux Current Limit: {} A -> {}", c, flux);
         let _ = self
             .write_register(PidTorqueFluxLimits::default().with_pid_torque_flux_limits(flux))
             .await;
@@ -648,7 +649,7 @@ where
             .await;
 
         // Set the flux current limit
-        let _ = self.set_flux().await?;
+        let _ = self.set_flux_current().await?;
         Ok(())
     }
 
