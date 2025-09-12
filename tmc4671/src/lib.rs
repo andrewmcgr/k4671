@@ -114,7 +114,7 @@ pub struct TMC4671Config {
     flux_current: f32,
     #[builder(default = 43.64)]
     voltage_scale: f32,
-    #[builder(default = 15e3)]
+    #[builder(default = 150e3)]
     pwm_freq_target: f32,
     #[builder(default = 2)]
     phases: u8,
@@ -559,6 +559,16 @@ where
         Ok((i_u.read_adc_iux(), i_u.read_adc_iwy(), i_v.read_adc_iv()))
     }
 
+    pub async fn get_raw_adc_currents(
+        &mut self,
+    ) -> Result<(u16, u16), FaultDetectionError<I::BusError>> {
+        let _ = self
+            .write_register(AdcRawAddr::default().with_adc_raw_addr(AdcRaw::AdcI1RawAdcI0Raw))
+            .await;
+        let regs = self.read_register::<AdcI1RawAdcI0Raw>().await?;
+        Ok((regs.read_adc_i0_raw(), regs.read_adc_i1_raw()))
+    }
+
     pub async fn init(
         &mut self,
         cfg: TMC4671Config,
@@ -781,6 +791,8 @@ where
                             info!("TMC Position actual {}", pos_actual);
                             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
                             info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
+                            let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
+                            info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
                         }
                         self.last_pos = pos;
                         if self.enabled {
