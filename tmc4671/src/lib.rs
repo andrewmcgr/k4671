@@ -441,16 +441,16 @@ where
         let _ = self
             .write_register(AdcRawAddr::default().with_adc_raw_addr(AdcRaw::AdcAgpiARawAdcVmRaw))
             .await;
-        let mut vmh = u16::MAX;
-        let mut vml = 0u16;
+        let mut vml = u16::MAX;
+        let mut vmh = 0u16;
         let n: u32 = 100;
         for _ in 0..n {
             let regs = self.read_register::<AdcAgpiARawAdcVmRaw>().await?;
             let vm = regs.read_adc_vm_raw();
-            if vm > vml {
+            if vm < vml {
                 vml = vm;
             }
-            if vm < vmh {
+            if vm > vmh {
                 vmh = vm;
             }
             Timer::after(Duration::from_micros(100)).await;
@@ -577,9 +577,6 @@ where
         self.run_current = cfg.run_current;
         self.flux_current = cfg.flux_current;
         self.voltage_scale = cfg.voltage_scale;
-
-        // Calibrate the ADCs
-        let _ = self.calibrate_adc().await?;
 
         // Static configuration
         let _ = self
@@ -733,6 +730,9 @@ where
                 PidVelocityLimit::default().with_pid_velocity_limit(cfg.pid_velocity_limit),
             )
             .await;
+
+        // Calibrate the ADCs
+        let _ = self.calibrate_adc().await?;
 
         // Set the run current
         let _ = self.set_run_current().await?;
