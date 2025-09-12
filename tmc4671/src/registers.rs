@@ -198,22 +198,22 @@ interface_objects! {
   }
 
   register AdcIwyIux(addr = 0x12, mode = rw, size=4) {
-    adc_iux: u16[0..16],
-    adc_iwy: u16[16..32],
+    adc_iux: i16[0..16],
+    adc_iwy: i16[16..32],
   }
 
   register AdcIv(addr = 0x13, mode = rw, size=4) {
-    adc_iv: u16[0..16],
+    adc_iv: i16[0..16],
     _: u16[16..32],
   }
 
   register AencWyUx(addr = 0x15, mode = rw, size=4) {
-    aenc_ux: u16[0..16],
-    aenc_wy: u16[16..32],
+    aenc_ux: i16[0..16],
+    aenc_wy: i16[16..32],
   }
 
   register AencVn(addr = 0x16, mode = rw, size=4) {
-    aenc_vn: u16[0..16],
+    aenc_vn: i16[0..16],
     _: u16[16..32],
   }
 

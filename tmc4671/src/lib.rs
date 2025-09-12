@@ -539,6 +539,18 @@ where
     pid_impl!(velocity);
     pid_impl!(position);
 
+    pub async fn get_phi_e(&mut self) -> Result<i16, FaultDetectionError<I::BusError>> {
+        let phi_e = self.read_register::<PhiE>().await?;
+        Ok(phi_e.read_phi_e())
+    }
+
+    pub async fn get_pid_position_actual(
+        &mut self,
+    ) -> Result<i32, FaultDetectionError<I::BusError>> {
+        let pos = self.read_register::<PidPositionActual>().await?;
+        Ok(pos.read_pid_position_actual())
+    }
+
     pub async fn init(
         &mut self,
         cfg: TMC4671Config,
@@ -757,6 +769,8 @@ where
                     TMCCommand::Move(pos, _vel, _accel) => {
                         if self.last_pos != pos {
                             info!("TMC Command {}", cmd);
+                            let pos_actual = self.get_pid_position_actual().await.unwrap_or(0);
+                            info!("TMC Position actual {}", pos_actual);
                         }
                         self.last_pos = pos;
                         if self.enabled {
