@@ -787,11 +787,15 @@ interface_objects! {
     interim_pidout_target_position: u32,
   }
   register InterimFocIwyIux(addr = 0x6e, mode = rw, size=4) {
-    interim_foc_iwy_iux: u32,
+    interim_foc_iwy: i16[0..16],
+    interim_foc_iux: i16[16..32],
   }
+
   register InterimFocIv(addr = 0x6e, mode = rw, size=4) {
-    interim_foc_iv: u32,
+     interim_foc_iv: i16[0..16],
+    _: u16[16..32],
   }
+  
   register InterimFocIbIa(addr = 0x6e, mode = rw, size=4) {
     interim_foc_ib_ia: u32,
   }
@@ -817,7 +821,8 @@ interface_objects! {
     interim_pwm_uv: u32,
   }
   register InterimAdcI1I0(addr = 0x6e, mode = rw, size=4) {
-    interim_adc_i1_i0: u32,
+    interim_adc_i0: u16[0..16],
+    interim_adc_i1: u16[16..32],
   }
   register InterimPidTorqueTargetFluxTargetTorqueActualFluxActualDiv256(addr = 0x6e, mode = rw, size=4) {
     interim_pid_torque_target_flux_target_torque_actual_flux_actual_div256: u32,

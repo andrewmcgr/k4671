@@ -116,8 +116,6 @@ pub struct TMC4671Config {
     voltage_scale: f32,
     #[builder(default = 150e3)]
     pwm_freq_target: f32,
-    #[builder(default = 2)]
-    phases: u8,
     #[builder(default = 50)]
     n_pole_pairs: u16,
     #[builder(default = 10)]
@@ -374,16 +372,16 @@ where
         let maxcnt = (4.0 * TMC_FREQUENCY / freq) as u32 - 1;
         let pwmfreq = 4.0 * TMC_FREQUENCY / (maxcnt as f32 + 1.0);
         info!("TMC PWM Frequency: {} Hz", pwmfreq);
-        let pwmt_ns = maxcnt + 1;
-        let mdec = ((pwmt_ns / 120) - 2) as u16;
+        // let pwmt_ns = maxcnt + 1;
+        // let mdec = ((pwmt_ns / 120) - 2) as u16;
         let _ = self
             .write_register(PwmMaxcnt::default().with_pwm_maxcnt(maxcnt))
             .await;
         let _ = self
             .write_register(
                 DsadcMdecBMdecA::default()
-                    .with_dsadc_mdec_a(mdec)
-                    .with_dsadc_mdec_b(mdec),
+                    .with_dsadc_mdec_a(0)
+                    .with_dsadc_mdec_b(0),
             )
             .await;
         Ok(())
@@ -434,7 +432,7 @@ where
             i1 += regs.read_adc_i1_raw() as u32;
             Timer::after(Duration::from_micros(100)).await;
         }
-        Ok(((i0 / n) as u16, (i1 / n) as u16))
+        Ok(((i0 / (n+1)) as u16, (i1 / (n+1)) as u16))
     }
 
     pub async fn sample_vm(&mut self) -> Result<(u16, u16), FaultDetectionError<I::BusError>> {
@@ -464,6 +462,8 @@ where
         let _ = self
             .write_register(cfg_adc.with_cfg_adc_i0(0).with_cfg_adc_i1(0))
             .await;
+        Timer::after(Duration::from_millis(300)).await;
+
         let (i0_offset, i1_offset) = self.sample_adc().await?;
         info!("TMC ADC Offsets: {}, {}", i0_offset, i1_offset);
         let _ = self
@@ -557,6 +557,19 @@ where
         let i_u = self.read_register::<AdcIwyIux>().await?;
         let i_v = self.read_register::<AdcIv>().await?;
         Ok((i_u.read_adc_iux(), i_u.read_adc_iwy(), i_v.read_adc_iv()))
+        // let _ = self
+        //     .write_register(InterimAddr::default().with_value(Interim::InterimFocIwyIux))
+        //     .await;
+        // let r_iwyux = self.read_register::<InterimFocIwyIux>().await?;
+        // let _ = self
+        //     .write_register(InterimAddr::default().with_value(Interim::InterimFocIv))
+        //     .await;
+        // let r_iv = self.read_register::<InterimFocIv>().await?;
+        // Ok((
+        //     r_iwyux.read_interim_foc_iux(),
+        //     r_iwyux.read_interim_foc_iwy(),
+        //     r_iv.read_interim_foc_iv(),
+        // ))
     }
 
     pub async fn get_raw_adc_currents(
@@ -567,6 +580,11 @@ where
             .await;
         let regs = self.read_register::<AdcI1RawAdcI0Raw>().await?;
         Ok((regs.read_adc_i0_raw(), regs.read_adc_i1_raw()))
+        // let _ = self
+        //     .write_register(InterimAddr::default().with_value(Interim::InterimAdcI1I0))
+        //     .await;
+        // let regs = self.read_register::<InterimAdcI1I0>().await?;
+        // Ok((regs.read_interim_adc_i0(), regs.read_interim_adc_i1()))
     }
 
     pub async fn init(
