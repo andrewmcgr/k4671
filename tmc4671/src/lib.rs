@@ -114,7 +114,7 @@ pub struct TMC4671Config {
     flux_current: f32,
     #[builder(default = 43.64)]
     voltage_scale: f32,
-    #[builder(default = 150e3)]
+    #[builder(default = 50e3)]
     pwm_freq_target: f32,
     #[builder(default = 50)]
     n_pole_pairs: u16,
@@ -167,7 +167,7 @@ pub struct TMC4671Config {
     #[builder(default = 0xAAAA)]
     hall_dphi_max: u32,
     #[builder(default = 0)]
-    hall_phi_e_offset: u16,
+    hall_phi_e_offset: i16,
     #[builder(default = 2)]
     hall_blank: u16,
     #[builder(default = 3)]
@@ -371,17 +371,26 @@ where
     ) -> Result<(), FaultDetectionError<I::BusError>> {
         let maxcnt = (4.0 * TMC_FREQUENCY / freq) as u32 - 1;
         let pwmfreq = 4.0 * TMC_FREQUENCY / (maxcnt as f32 + 1.0);
+        let pwmt_ns = maxcnt + 1;
+        let mcnt: u32 = 0x4000_0000; // 50 MHz
+        let mdec = ((pwmt_ns / (3 * (0x8000_0000/mcnt))) - 2) as u16;
         info!("TMC PWM Frequency: {} Hz", pwmfreq);
-        // let pwmt_ns = maxcnt + 1;
-        // let mdec = ((pwmt_ns / 120) - 2) as u16;
+        info!("  maxcnt: {}, mdec: {}, mcnt: {}", maxcnt, mdec, mcnt);
         let _ = self
             .write_register(PwmMaxcnt::default().with_pwm_maxcnt(maxcnt))
+            .await;
+        // Set ADC clock
+        let _ = self
+            .write_register(DsadcMclkA::default().with_dsadc_mclk_a(mcnt))
+            .await;
+        let _ = self
+            .write_register(DsadcMclkB::default().with_dsadc_mclk_b(mcnt))
             .await;
         let _ = self
             .write_register(
                 DsadcMdecBMdecA::default()
-                    .with_dsadc_mdec_a(0)
-                    .with_dsadc_mdec_b(0),
+                    .with_dsadc_mdec_a(mdec)
+                    .with_dsadc_mdec_b(mdec),
             )
             .await;
         Ok(())
@@ -430,9 +439,9 @@ where
             let regs = self.read_register::<AdcI1RawAdcI0Raw>().await?;
             i0 += regs.read_adc_i0_raw() as u32;
             i1 += regs.read_adc_i1_raw() as u32;
-            Timer::after(Duration::from_micros(100)).await;
+            Timer::after(Duration::from_micros(1000)).await;
         }
-        Ok(((i0 / (n+1)) as u16, (i1 / (n+1)) as u16))
+        Ok(((i0 / (n + 1)) as u16, (i1 / (n + 1)) as u16))
     }
 
     pub async fn sample_vm(&mut self) -> Result<(u16, u16), FaultDetectionError<I::BusError>> {
@@ -451,7 +460,7 @@ where
             if vm > vmh {
                 vmh = vm;
             }
-            Timer::after(Duration::from_micros(100)).await;
+            Timer::after(Duration::from_micros(1000)).await;
         }
         Ok((vmh, vml))
     }
@@ -470,14 +479,14 @@ where
             .write_register(
                 AdcI0ScaleOffset::default()
                     .with_adc_i0_offset(i0_offset)
-                    .with_adc_i0_scale(256),
+                    .with_adc_i0_scale(1<<8),
             )
             .await;
         let _ = self
             .write_register(
                 AdcI1ScaleOffset::default()
                     .with_adc_i1_offset(i1_offset)
-                    .with_adc_i1_scale(256),
+                    .with_adc_i1_scale(1<<8),
             )
             .await;
         // Calibrate voltage ADC for brake settings
@@ -647,7 +656,7 @@ where
             .write_register(
                 PwmSvChop::default()
                     .with_pwm_sv(cfg.pwm_sv)
-                    .with_pwm_chop(0),
+                    .with_pwm_chop(7),
             )
             .await;
         // Set motor parameters
@@ -772,6 +781,10 @@ where
         let mut ticker = TMCTimeIterator::new();
         loop {
             while let Some(cmd) = self.command_rx.try_receive().ok() {
+                let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
+                info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
+                let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
+                info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
                 match cmd {
                     TMCCommand::Enable => {
                         info!("TMC Command {}", cmd);
@@ -807,10 +820,6 @@ where
                             info!("TMC Command {}", cmd);
                             let pos_actual = self.get_pid_position_actual().await.unwrap_or(0);
                             info!("TMC Position actual {}", pos_actual);
-                            let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
-                            info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
-                            let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
-                            info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
                         }
                         self.last_pos = pos;
                         if self.enabled {

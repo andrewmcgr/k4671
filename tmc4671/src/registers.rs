@@ -141,12 +141,12 @@ interface_objects! {
 
   register AdcI1ScaleOffset(addr = 0x8, mode = rw, size=4) {
     adc_i1_offset: u16[0..16],
-    adc_i1_scale: u16[16..32],
+    adc_i1_scale: i16[16..32],
   }
 
   register AdcI0ScaleOffset(addr = 0x9, mode = rw, size=4) {
     adc_i0_offset: u16[0..16],
-    adc_i0_scale: u16[16..32],
+    adc_i0_scale: i16[16..32],
   }
 
   register AdcISelect(addr = 0xa, mode = rw, size=4) {
@@ -177,17 +177,17 @@ interface_objects! {
 
   register Aenc0ScaleOffset(addr = 0xd, mode = rw, size=4) {
     aenc0_offset: u16[0..16],
-    aenc0_scale: u16[16..32],
+    aenc0_scale: i16[16..32],
   }
 
   register Aenc1ScaleOffset(addr = 0xe, mode = rw, size=4) {
     aenc1_offset: u16[0..16],
-    aenc1_scale: u16[16..32],
+    aenc1_scale: i16[16..32],
   }
 
   register Aenc2ScaleOffset(addr = 0xf, mode = rw, size=4) {
     aenc2_offset: u16[0..16],
-    aenc2_scale: u16[16..32],
+    aenc2_scale: i16[16..32],
   }
 
   register AencSelect(addr = 0x11, mode = rw, size=4) {
@@ -246,7 +246,7 @@ interface_objects! {
   }
 
   register PhiEExt(addr = 0x1c, mode = rw, size=4) {
-    phi_e_ext: u32,
+    phi_e_ext: i32,
   }
 
   register OpenloopMode(addr = 0x1f, mode = rw, size=4) {
@@ -298,13 +298,13 @@ interface_objects! {
   }
 
   register AbnDecoderPhiEPhiMOffset(addr = 0x29, mode = rw, size=4) {
-    abn_decoder_phi_m_offset: u16[0..16],
-    abn_decoder_phi_e_offset: u16[16..32],
+    abn_decoder_phi_m_offset: i16[0..16],
+    abn_decoder_phi_e_offset: i16[16..32],
   }
 
   register AbnDecoderPhiEPhiM(addr = 0x2a, mode = rw, size=4) {
-    abn_decoder_phi_m: u16[0..16],
-    abn_decoder_phi_e: u16[16..32],
+    abn_decoder_phi_m: i16[0..16],
+    abn_decoder_phi_e: i16[16..32],
   }
 
   register Abn2DecoderMode(addr = 0x2c, mode = rw, size=4) {
@@ -330,11 +330,11 @@ interface_objects! {
   }
 
   register Abn2DecoderPhiMOffset(addr = 0x30, mode = rw, size=4) {
-    abn2_decoder_phi_m_offset: u32,
+    abn2_decoder_phi_m_offset: i32,
   }
 
   register Abn2DecoderPhiM(addr = 0x31, mode = rw, size=4) {
-    abn2_decoder_phi_m: u32,
+    abn2_decoder_phi_m: i32,
   }
 
   register HallMode(addr = 0x33, mode = rw, size=4) {
@@ -347,23 +347,23 @@ interface_objects! {
   }
 
   register HallPosition060000(addr = 0x34, mode = rw, size=4) {
-    hall_position000: u16[0..16],
-    hall_position060: u16[16..32],
+    hall_position000: i16[0..16],
+    hall_position060: i16[16..32],
   }
 
   register HallPosition180120(addr = 0x35, mode = rw, size=4) {
-    hall_position120: u16[0..16],
-    hall_position180: u16[16..32],
+    hall_position120: i16[0..16],
+    hall_position180: i16[16..32],
   }
 
   register HallPosition300240(addr = 0x36, mode = rw, size=4) {
-    hall_position240: u16[0..16],
-    hall_position300: u16[16..32],
+    hall_position240: i16[0..16],
+    hall_position300: i16[16..32],
   }
 
   register HallPhiEPhiMOffset(addr = 0x37, mode = rw, size=4) {
-    hall_phi_m_offset: u16[0..16],
-    hall_phi_e_offset: u16[16..32],
+    hall_phi_m_offset: i16[0..16],
+    hall_phi_e_offset: i16[16..32],
   }
 
   register HallDPhiMax(addr = 0x38, mode = rw, size=4) {
@@ -371,12 +371,13 @@ interface_objects! {
   }
 
   register HallPhiEInterpolatedPhiE(addr = 0x39, mode = rw, size=4) {
-    hall_phi_e: u16[0..16],
-    hall_phi_e_interpolated: u16[16..32],
+    hall_phi_e: i16[0..16],
+    hall_phi_e_interpolated: i16[16..32],
   }
 
   register HallPhiM(addr = 0x3a, mode = rw, size=4) {
-    hall_phi_m: u32,
+    hall_phi_m: i16,
+    _: u16[16..32],
   }
 
   register AencDecoderMode(addr = 0x3b, mode = rw, size=4) {
