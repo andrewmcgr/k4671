@@ -21,7 +21,7 @@ use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
-use tmc4671::{self, TMC4671Config, TimeIterator, CS};
+use tmc4671::{self, config::TMC4671Config, TimeIterator, CS};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;

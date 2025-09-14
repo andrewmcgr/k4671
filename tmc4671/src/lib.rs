@@ -12,7 +12,6 @@ use embassy_sync::{channel, pubsub};
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 
-use const_builder::ConstBuilder;
 use fixed::types::{I4F12, I8F8};
 use paste::paste;
 
@@ -26,6 +25,7 @@ pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>
 pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
 
 pub mod registers;
+pub mod config;
 
 // The 4671 has a 25 MHz external clock
 const TMC_FREQUENCY: f32 = 25000000.0;
@@ -101,103 +101,6 @@ pub enum FaultDetectionError<BusError> {
     /// A fault was detected. Read the FaultStatus register for details.
     #[error("fault detected")]
     FaultDetected,
-}
-
-#[derive(ConstBuilder)]
-#[builder(default)]
-pub struct TMC4671Config {
-    #[builder(default = 1.155)]
-    current_scale_ma_lsb: f32,
-    #[builder(default = 0.5)]
-    run_current: f32,
-    #[builder(default = 0.0)]
-    flux_current: f32,
-    #[builder(default = 43.64)]
-    voltage_scale: f32,
-    #[builder(default = 50e3)]
-    pwm_freq_target: f32,
-    #[builder(default = 50)]
-    n_pole_pairs: u16,
-    #[builder(default = 10)]
-    pwm_bbm_l: u8,
-    #[builder(default = 10)]
-    pwm_bbm_h: u8,
-    #[builder(default = false)]
-    pwm_sv: bool,
-    #[builder(default = 2)]
-    motor_type: u8,
-    #[builder(default = 0)]
-    adc_i_ux_select: u8,
-    #[builder(default = 2)]
-    adc_i_v_select: u8,
-    #[builder(default = 1)]
-    adc_i_wy_select: u8,
-    #[builder(default = 0)]
-    adc_i0_select: u8,
-    #[builder(default = 1)]
-    adc_i1_select: u8,
-    #[builder(default = true)]
-    aenc_deg: bool,
-    #[builder(default = false)]
-    aenc_dir: bool,
-    #[builder(default = 1)]
-    aenc_ppr: u16,
-    #[builder(default = false)]
-    abn_apol: bool,
-    #[builder(default = false)]
-    abn_bpol: bool,
-    #[builder(default = false)]
-    abn_npol: bool,
-    #[builder(default = false)]
-    abn_use_abn_as_n: bool,
-    #[builder(default = false)]
-    abn_cln: bool,
-    #[builder(default = false)]
-    abn_direction: bool,
-    #[builder(default = 4000)]
-    abn_decoder_ppr: u32,
-    #[builder(default = false)]
-    hall_interp: bool,
-    #[builder(default = true)]
-    hall_sync: bool,
-    #[builder(default = false)]
-    hall_polarity: bool,
-    #[builder(default = false)]
-    hall_dir: bool,
-    #[builder(default = 0xAAAA)]
-    hall_dphi_max: u32,
-    #[builder(default = 0)]
-    hall_phi_e_offset: i16,
-    #[builder(default = 2)]
-    hall_blank: u16,
-    #[builder(default = 3)]
-    phi_e_selection: u32,
-    #[builder(default = 9)]
-    position_selection: u32,
-    #[builder(default = 9)]
-    velocity_selection: u8,
-    #[builder(default = true)] // PWM frequency velocity meter
-    velocity_meter_selection: bool,
-    #[builder(default = 0)] // Advanced PID samples position at fPWM
-    mode_pid_smpl: u8,
-    #[builder(default = true)] // Advanced PID mode
-    mode_pid_type: bool,
-    #[builder(default = 31500)] // Voltage limit, 32768 = Vm
-    pidout_uq_ud_limits: u16,
-    #[builder(default=-0x10000000)]
-    pid_position_limit_low: i32,
-    #[builder(default = 0x10000000)]
-    pid_position_limit_high: i32,
-    #[builder(default = 0x10000000)]
-    pid_velocity_limit: u32,
-    #[builder(default = (2.82, 0.00277))]
-    pid_position_p_i: (f32, f32),
-    #[builder(default = (1.408, 0.00826))]
-    pid_velocity_p_i: (f32, f32),
-    #[builder(default = (4.879, 0.0571))]
-    pid_torque_p_i: (f32, f32),
-    #[builder(default = (4.879, 0.0571))]
-    pid_flux_p_i: (f32, f32),
 }
 
 /// The TMC 4671 is a hardware Field Oriented Control motor driver.
@@ -561,7 +464,7 @@ where
 
     pub async fn init(
         &mut self,
-        cfg: TMC4671Config,
+        cfg: config::TMC4671Config,
     ) -> Result<(), FaultDetectionError<I::BusError>> {
         // Check that we have a device
         let _ = self.ident().await?;
