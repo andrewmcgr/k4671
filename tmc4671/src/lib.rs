@@ -275,33 +275,6 @@ where
 
 pub trait TMC4671Register {}
 
-// macro_rules! reg {
-//     ($($self:ident. $reg:ident[$addr_reg:ident->$addr:expr] = $e:expr);+) => {
-//         $(
-//         let _ = $self
-//             .write_register($addr_reg::default().with_value($addr)).await;
-//         let _ = $self
-//             .write_register($reg::default().with_value($e)).await;
-//         )+
-//     };
-//     ($($self:ident. $reg:ident = $e:expr);+) => {
-//         $(
-//         let _ = $self
-//             .write_register($reg::default().with_value($e)).await;
-//         )+
-//     };
-//     ($self:ident. $reg:ident[$addr_reg:ident->$addr:expr]) => {
-//         {
-//             let _ = $self
-//                 .write_register($addr_reg::default().with_value($addr)).await;
-//             $self.read_register::<$reg>()
-//         }
-//     };
-//     ($self:ident. $reg:ident) => {
-//         $self.read_register::<$reg>()
-//     };
-// }
-
 macro_rules! pid_impl {
     ($nom:ident) => {
         paste! {
@@ -520,12 +493,6 @@ where
         info!("TMC ADC I1 Offset {}, Scale {}", reg.read_adc_i1_offset(), reg.read_adc_i1_scale());
         let reg = self.read_register::<AdcVmLimits>().await?;
         info!("TMC ADC VM High {}, Low {}", reg.read_adc_vm_limit_high(), reg.read_adc_vm_limit_low());
-        // for _ in 0..4 {
-        //     let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
-        //     info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
-        //     let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
-        //     info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
-        // }
         Ok(())
     }
 
@@ -580,19 +547,6 @@ where
         let i_v = self.read_register::<AdcIv>().await?;
         // info!("TMC ADC Currents Raw: {:x}, {:x}", i_u.0, i_v.0);
         Ok((i_u.read_adc_iux(), i_u.read_adc_iwy(), i_v.read_adc_iv()))
-        // let _ = self
-        //     .write_register(InterimAddr::default().with_value(Interim::InterimFocIwyIux))
-        //     .await;
-        // let r_iwyux = self.read_register::<InterimFocIwyIux>().await?;
-        // let _ = self
-        //     .write_register(InterimAddr::default().with_value(Interim::InterimFocIv))
-        //     .await;
-        // let r_iv = self.read_register::<InterimFocIv>().await?;
-        // Ok((
-        //     r_iwyux.read_interim_foc_iux(),
-        //     r_iwyux.read_interim_foc_iwy(),
-        //     r_iv.read_interim_foc_iv(),
-        // ))
     }
 
     pub async fn get_raw_adc_currents(
@@ -603,11 +557,6 @@ where
             .await;
         let regs = self.read_register::<AdcI1RawAdcI0Raw>().await?;
         Ok((regs.read_adc_i0_raw(), regs.read_adc_i1_raw()))
-        // let _ = self
-        //     .write_register(InterimAddr::default().with_value(Interim::InterimAdcI1I0))
-        //     .await;
-        // let regs = self.read_register::<InterimAdcI1I0>().await?;
-        // Ok((regs.read_interim_adc_i0(), regs.read_interim_adc_i1()))
     }
 
     pub async fn init(
