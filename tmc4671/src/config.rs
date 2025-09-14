@@ -5,7 +5,7 @@ use const_builder::ConstBuilder;
 pub struct TMC4671Config {
     #[builder(default = 1.155)]
     pub current_scale_ma_lsb: f32,
-    #[builder(default = 0.5)]
+    #[builder(default = 0.8)]
     pub run_current: f32,
     #[builder(default = 0.0)]
     pub flux_current: f32,

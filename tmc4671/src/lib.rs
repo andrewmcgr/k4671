@@ -190,11 +190,13 @@ macro_rules! pid_impl {
         paste! {
             pub async fn [<set_ $nom:lower _pid>](&mut self, p: f32, i: f32)
             {
+                let val = [<Pid $nom:camel P $nom:camel I> ]::default()
+                            .[<with_pid_ $nom:lower _p>](I8F8::from_num(p).to_bits())
+                            .[<with_pid_ $nom:lower _i>](I4F12::from_num(i).to_bits());
+                info!("TMC Set {} PID: P {}, I {}, Reg {:x}", stringify!($nom), p, i, val.0);
                 let _ = self
                     .write_register(
-                        [<Pid $nom:camel P $nom:camel I> ]::default()
-                            .[<with_pid_ $nom:lower _p>](I8F8::from_num(p).to_bits())
-                            .[<with_pid_ $nom:lower _i>](I4F12::from_num(i).to_bits()),
+                        val
                     )
                     .await;
             }
@@ -507,11 +509,11 @@ where
             .write_register(
                 ConfigAdvancedPiRepresent::default()
                     .with_config_current_i(true)
-                    .with_config_current_p(true)
+                    .with_config_current_p(false)
                     .with_config_velocity_i(true)
-                    .with_config_velocity_p(true)
+                    .with_config_velocity_p(false)
                     .with_config_position_i(true)
-                    .with_config_position_p(true),
+                    .with_config_position_p(false),
             )
             .await;
 
@@ -750,9 +752,11 @@ where
             .await;
 
         // Now pulse the voltage and get the rotor aligned
+        let posreg = self.read_register::<PidPositionActual>().await?;
+        let mut last_pos = posreg.read_pid_position_actual();
         let _ = self.write_register(reg.with_pwm_chop(7)).await;
         let _ = self.enable_pin.set_high();
-        for _ in 0..10 {
+        for _ in 0..60 {
             Timer::after(Duration::from_millis(10)).await;
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             info!(
@@ -760,20 +764,26 @@ where
                 iux, iwy, iv
             );
             let reg = self.read_register::<PidPositionActual>().await?;
-            info!("  Position Actual: {}", reg.read_pid_position_actual());
+            let pos = reg.read_pid_position_actual();
+            info!("  Position Actual: {}", pos);
+            if pos != last_pos {
+                last_pos = pos;
+            } else {
+                break;
+            }
         }
         // We are now mechanically aligned, zero the encoder.
-        let _ = self
-            .write_register(PidPositionActual::default().with_pid_position_actual(0))
-            .await;
-        let _ = self
-            .write_register(AbnDecoderCount::default().with_abn_decoder_count(0))
-            .await;
+        // let _ = self
+        //     .write_register(PidPositionActual::default().with_pid_position_actual(0))
+        //     .await;
+        // let _ = self
+        //     .write_register(AbnDecoderCount::default().with_abn_decoder_count(0))
+        //     .await;
         let _ = self
             .write_register(
                 AbnDecoderPhiEPhiMOffset::default()
-                    .with_abn_decoder_phi_e_offset(0)
-                    .with_abn_decoder_phi_m_offset(0),
+                    .with_abn_decoder_phi_e_offset(last_pos as i16)
+                    .with_abn_decoder_phi_m_offset(last_pos as i16),
             )
             .await;
 
@@ -796,7 +806,7 @@ where
                 PidTorqueFluxOffset::default().with_pid_flux_offset(old_flux_offset),
             )
             .await;
-        
+
         // Set the run current
         let _ = self.set_run_current().await?;
         Ok(())
@@ -814,13 +824,12 @@ where
                 match cmd {
                     TMCCommand::Enable => {
                         info!("TMC Command {}", cmd);
-                        self.enabled = true;
-                        let _ = self.enable_pin.set_high();
+                        let _ = self.enable_motor().await;
+                        let _ = self.set_motion_mode(MotionMode::PositionMode).await;
                     }
                     TMCCommand::Disable => {
                         info!("TMC Command {}", cmd);
-                        self.enabled = false;
-                        let _ = self.enable_pin.set_low();
+                        let _ = self.disable_motor().await;
                     }
                     // TMCCommand::SpiSend(data) => {
                     //     info!("TMC Command {:x}", cmd);
@@ -842,11 +851,11 @@ where
                     //     }
                     // }
                     TMCCommand::Move(pos, _vel, _accel) => {
-                        if self.last_pos != pos {
+                        // if self.last_pos != pos {
                             info!("TMC Command {}", cmd);
                             let pos_actual = self.get_pid_position_actual().await.unwrap_or(0);
                             info!("TMC Position actual {}", pos_actual);
-                        }
+                        // }
                         self.last_pos = pos;
                         if self.enabled {
                             self.write_register(

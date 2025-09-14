@@ -21,7 +21,7 @@ use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
-use tmc4671::{self, config::TMC4671Config, TimeIterator, CS};
+use tmc4671::{self, CS, TimeIterator, config::TMC4671Config};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
@@ -282,12 +282,18 @@ static ENCODER: OnceLockQei = OnceLockQei::new();
 
 #[embassy_executor::task]
 async fn encoder_mon() {
+    TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
     loop {
         let pos = ENCODER.get().await.count();
+        let pos = if pos > 32768 {
+            (pos as i32) - 65536
+        } else {
+            pos as i32
+        };
         info!("Encoder pos {}", pos);
         TMC_CMD
             .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(pos.into(), 0.0, 0.0))
+            .send(tmc4671::TMCCommand::Move(pos, 0.0, 0.0))
             .await;
         Timer::after_millis(300).await;
     }

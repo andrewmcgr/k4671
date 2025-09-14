@@ -593,23 +593,23 @@ interface_objects! {
   }
 
   register PidFluxPFluxI(addr = 0x54, mode = rw, size=4) {
-    pid_flux_i: i16[0..16],
-    pid_flux_p: i16[16..32],
+    pid_flux_p: i16[0..16],
+    pid_flux_i: i16[16..32],
   }
 
   register PidTorquePTorqueI(addr = 0x56, mode = rw, size=4) {
-    pid_torque_i: i16[0..16],
-    pid_torque_p: i16[16..32],
+    pid_torque_p: i16[0..16],
+    pid_torque_i: i16[16..32],
   }
 
   register PidVelocityPVelocityI(addr = 0x58, mode = rw, size=4) {
-    pid_velocity_i: i16[0..16],
-    pid_velocity_p: i16[16..32],
+    pid_velocity_p: i16[0..16],
+    pid_velocity_i: i16[16..32],
   }
 
   register PidPositionPPositionI(addr = 0x5a, mode = rw, size=4) {
-    pid_position_i: i16[0..16],
-    pid_position_p: i16[16..32],
+    pid_position_p: i16[0..16],
+    pid_position_i: i16[16..32],
   }
 
   register PidoutUqUdLimits(addr = 0x5d, mode = rw, size=4) {
