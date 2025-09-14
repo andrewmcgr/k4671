@@ -373,9 +373,9 @@ where
         let pwmfreq = 4.0 * TMC_FREQUENCY / (maxcnt as f32 + 1.0);
         let pwmt_ns = maxcnt + 1;
         let mcnt: u32 = 0x4000_0000; // 50 MHz
-        let mdec = ((pwmt_ns / (3 * (0x8000_0000/mcnt))) - 2) as u16;
+        let mdec = ((pwmt_ns / (3 * (0x8000_0000 / mcnt))) - 2) as u16;
         info!("TMC PWM Frequency: {} Hz", pwmfreq);
-        info!("  maxcnt: {}, mdec: {}, mcnt: {}", maxcnt, mdec, mcnt);
+        info!("  maxcnt: {}, mdec: {}, mcnt: {:x}", maxcnt, mdec, mcnt);
         let _ = self
             .write_register(PwmMaxcnt::default().with_pwm_maxcnt(maxcnt))
             .await;
@@ -434,14 +434,14 @@ where
             .await;
         let mut i0: u32 = 0;
         let mut i1: u32 = 0;
-        let n: u32 = 100;
+        let n: u32 = 127;
         for _ in 0..n {
             let regs = self.read_register::<AdcI1RawAdcI0Raw>().await?;
             i0 += regs.read_adc_i0_raw() as u32;
             i1 += regs.read_adc_i1_raw() as u32;
             Timer::after(Duration::from_micros(1000)).await;
         }
-        Ok(((i0 / (n + 1)) as u16, (i1 / (n + 1)) as u16))
+        Ok(((i0 / (n)) as u16, (i1 / (n)) as u16))
     }
 
     pub async fn sample_vm(&mut self) -> Result<(u16, u16), FaultDetectionError<I::BusError>> {
@@ -471,7 +471,8 @@ where
         let _ = self
             .write_register(cfg_adc.with_cfg_adc_i0(0).with_cfg_adc_i1(0))
             .await;
-        Timer::after(Duration::from_millis(300)).await;
+        let reg = self.read_register::<DsAnalogInputStageCfg>().await?;
+        info!("TMC ADC Config I0 {}, I1 {}", reg.read_cfg_adc_i0(), reg.read_cfg_adc_i1());
 
         let (i0_offset, i1_offset) = self.sample_adc().await?;
         info!("TMC ADC Offsets: {}, {}", i0_offset, i1_offset);
@@ -479,22 +480,22 @@ where
             .write_register(
                 AdcI0ScaleOffset::default()
                     .with_adc_i0_offset(i0_offset)
-                    .with_adc_i0_scale(1<<8),
+                    .with_adc_i0_scale(1 << 8),
             )
             .await;
         let _ = self
             .write_register(
                 AdcI1ScaleOffset::default()
                     .with_adc_i1_offset(i1_offset)
-                    .with_adc_i1_scale(1<<8),
+                    .with_adc_i1_scale(1 << 8),
             )
             .await;
         // Calibrate voltage ADC for brake settings
         let (vmh, vml) = self.sample_vm().await?;
-        info!("TMC VM Range: {}, {}", vmh, vml);
+        // info!("TMC VM Range: {}, {}", vmh, vml);
         let vmr = vmh - vml;
         let high: u32 = vmr as u32 / 2 + vmh as u32 + (0.05 * self.voltage_scale + 0.5) as u32;
-        info!("TMC VM Brake Range: {}, {}", high, vmr / 2 + vmh);
+        // info!("TMC VM Brake Range: {}, {}", high, vmr / 2 + vmh);
         if high < u16::MAX as u32 {
             let _ = self
                 .write_register(
@@ -513,6 +514,18 @@ where
                 )
                 .await;
         }
+        let reg = self.read_register::<AdcI0ScaleOffset>().await?;
+        info!("TMC ADC I0 Offset {}, Scale {}", reg.read_adc_i0_offset(), reg.read_adc_i0_scale());
+        let reg= self.read_register::<AdcI1ScaleOffset>().await?;
+        info!("TMC ADC I1 Offset {}, Scale {}", reg.read_adc_i1_offset(), reg.read_adc_i1_scale());
+        let reg = self.read_register::<AdcVmLimits>().await?;
+        info!("TMC ADC VM High {}, Low {}", reg.read_adc_vm_limit_high(), reg.read_adc_vm_limit_low());
+        // for _ in 0..4 {
+        //     let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
+        //     info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
+        //     let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
+        //     info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
+        // }
         Ok(())
     }
 
@@ -565,6 +578,7 @@ where
     ) -> Result<(i16, i16, i16), FaultDetectionError<I::BusError>> {
         let i_u = self.read_register::<AdcIwyIux>().await?;
         let i_v = self.read_register::<AdcIv>().await?;
+        // info!("TMC ADC Currents Raw: {:x}, {:x}", i_u.0, i_v.0);
         Ok((i_u.read_adc_iux(), i_u.read_adc_iwy(), i_v.read_adc_iv()))
         // let _ = self
         //     .write_register(InterimAddr::default().with_value(Interim::InterimFocIwyIux))
@@ -605,9 +619,6 @@ where
 
         // Disable the motor
         self.disable_motor().await?;
-
-        // Set the PWM frequency
-        let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
 
         // Save configuration parameters
         self.current_scale_ma_lsb = cfg.current_scale_ma_lsb;
@@ -768,11 +779,15 @@ where
             )
             .await;
 
-        // Calibrate the ADCs
-        let _ = self.calibrate_adc().await?;
+        // Set the PWM frequency
+        let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
 
         // Set the run current
         let _ = self.set_run_current().await?;
+
+        // Calibrate the ADCs
+        let _ = self.calibrate_adc().await?;
+
         Ok(())
     }
 

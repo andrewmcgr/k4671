@@ -341,13 +341,13 @@ fn main() -> ! {
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
-    unwrap!(spawner.spawn(tmc_task(r.tmc)));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    unwrap!(spawner.spawn(blink(r.led)));
-    unwrap!(spawner.spawn(encoder_mon()));
+    spawner.spawn(blink(r.led).expect("Spawn failure"));
+    spawner.spawn(encoder_mon().expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
@@ -357,6 +357,6 @@ fn main() -> ! {
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(usb_comms(r.usb)));
+        spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
     });
 }

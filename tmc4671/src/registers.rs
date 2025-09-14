@@ -94,36 +94,36 @@ interface_objects! {
   }
 
   register AdcI1RawAdcI0Raw(addr = 0x2, mode = rw, size=4) {
-    adc_i0_raw: u16[0..16],
-    adc_i1_raw: u16[16..32],
+    adc_i0_raw: u16[16..32],
+    adc_i1_raw: u16[0..16],
   }
 
   register AdcAgpiARawAdcVmRaw(addr = 0x2, mode = rw, size=4) {
-    adc_agpi_a_raw: u16[0..16],
-    adc_vm_raw: u16[16..32],
+    adc_agpi_a_raw: u16[16..32],
+    adc_vm_raw: u16[0..16],
   }
 
   register AdcAencUxRawAdcAgpiBRaw(addr = 0x2, mode = rw, size=4) {
-    adc_aenc_ux_raw: u16[0..16],
-    adc_agpi_b_raw: u16[16..32],
+    adc_aenc_ux_raw: u16[16..32],
+    adc_agpi_b_raw: u16[0..16],
   }
 
   register AdcAencWyRawAdcAencVnRaw(addr = 0x2, mode = rw, size=4) {
-    adc_aenc_wy_raw: u16[0..16],
-    adc_aenc_vn_raw: u16[16..32],
+    adc_aenc_wy_raw: u16[16..32],
+    adc_aenc_vn_raw: u16[0..16],
   }
 
   register DsadcMcfgBMcfgA(addr = 0x4, mode = rw, size=4) {
-    cfg_dsmodulator_a: u8[0..2],
-    mclk_polarity_a: bool[2],
-    mdat_polarity_a: bool[3],
-    sel_nclk_mclk_ia: bool[4],
-    _: u16[5..16],
-    cfg_dsmodulator_b: u8[16..18],
-    mclk_polarity_b: bool[18],
-    mdat_polarity_b: bool[19],
-    sel_nclk_mclk_ib: bool[20],
-    _: u16[21..32],
+    cfg_dsmodulator_a: u8[30..32],
+    mclk_polarity_a: bool[29],
+    mdat_polarity_a: bool[28],
+    sel_nclk_mclk_ia: bool[27],
+    _: u16[16..27],
+    cfg_dsmodulator_b: u8[14..16],
+    mclk_polarity_b: bool[13],
+    mdat_polarity_b: bool[12],
+    sel_nclk_mclk_ib: bool[11],
+    _: u16[0..11],
   }
 
   register DsadcMclkA(addr = 0x5, mode = rw, size=4) {
@@ -140,87 +140,87 @@ interface_objects! {
   }
 
   register AdcI1ScaleOffset(addr = 0x8, mode = rw, size=4) {
-    adc_i1_offset: u16[0..16],
-    adc_i1_scale: i16[16..32],
+    adc_i1_offset: u16[16..32],
+    adc_i1_scale: i16[0..16],
   }
 
   register AdcI0ScaleOffset(addr = 0x9, mode = rw, size=4) {
-    adc_i0_offset: u16[0..16],
-    adc_i0_scale: i16[16..32],
+    adc_i0_offset: u16[16..32],
+    adc_i0_scale: i16[0..16],
   }
 
   register AdcISelect(addr = 0xa, mode = rw, size=4) {
-    adc_i0_select: u8[0..8],
-    adc_i1_select: u8[8..16],
-    _: u8[16..24],
-    adc_i_ux_select: u8[24..26],
-    adc_i_v_select: u8[26..28],
-    adc_i_wy_select: u8[28..30],
-    _: u8[30..32],
+    adc_i0_select: u8[24..32],
+    adc_i1_select: u8[16..24],
+    _: u8[8..16],
+    adc_i_ux_select: u8[6..8],
+    adc_i_v_select: u8[4..6],
+    adc_i_wy_select: u8[2..4],
+    _: u8[0..2],
   }
 
   register AdcI1I0Ext(addr = 0xb, mode = rw, size=4) {
-    adc_i0_ext: u16[0..16],
-    adc_i1_ext: u16[16..32],
+    adc_i0_ext: u16[16..32],
+    adc_i1_ext: u16[0..16],
   }
 
   register DsAnalogInputStageCfg(addr = 0xc, mode = rw, size=4) {
-    cfg_adc_i0: u8[0..4],
-    cfg_adc_i1: u8[4..8],
-    cfg_adc_vm: u8[8..12],
-    cfg_adc_agpi_a: u8[12..16],
-    cfg_adc_agpi_b: u8[16..20],
-    cfg_adc_aenc_ux: u8[20..24],
-    cfg_adc_aenc_vn: u8[24..28],
-    cfg_adc_aenc_wy: u8[28..32],
+    cfg_adc_i0: u8[28..32],
+    cfg_adc_i1: u8[24..28],
+    cfg_adc_vm: u8[20..24],
+    cfg_adc_agpi_a: u8[16..20],
+    cfg_adc_agpi_b: u8[12..16],
+    cfg_adc_aenc_ux: u8[8..12],
+    cfg_adc_aenc_vn: u8[4..8],
+    cfg_adc_aenc_wy: u8[0..4],
   }
 
   register Aenc0ScaleOffset(addr = 0xd, mode = rw, size=4) {
-    aenc0_offset: u16[0..16],
-    aenc0_scale: i16[16..32],
+    aenc0_offset: u16[16..32],
+    aenc0_scale: i16[0..16],
   }
 
   register Aenc1ScaleOffset(addr = 0xe, mode = rw, size=4) {
-    aenc1_offset: u16[0..16],
-    aenc1_scale: i16[16..32],
+    aenc1_offset: u16[16..32],
+    aenc1_scale: i16[0..16],
   }
 
   register Aenc2ScaleOffset(addr = 0xf, mode = rw, size=4) {
-    aenc2_offset: u16[0..16],
-    aenc2_scale: i16[16..32],
+    aenc2_offset: u16[16..32],
+    aenc2_scale: i16[0..16],
   }
 
   register AencSelect(addr = 0x11, mode = rw, size=4) {
-    aenc0_select: u8[0..8],
-    aenc1_select: u8[8..16],
-    aenc2_select: u8[16..24],
-    _: u8[24..32],
+    aenc0_select: u8[24..32],
+    aenc1_select: u8[16..24],
+    aenc2_select: u8[8..16],
+    _: u8[0..8],
   }
 
   register AdcIwyIux(addr = 0x12, mode = rw, size=4) {
-    adc_iux: i16[0..16],
-    adc_iwy: i16[16..32],
+    adc_iux: i16[16..32],
+    adc_iwy: i16[0..16],
   }
 
   register AdcIv(addr = 0x13, mode = rw, size=4) {
-    adc_iv: i16[0..16],
-    _: u16[16..32],
+    adc_iv: i16[16..32],
+    _: u16[0..16],
   }
 
   register AencWyUx(addr = 0x15, mode = rw, size=4) {
-    aenc_ux: i16[0..16],
-    aenc_wy: i16[16..32],
+    aenc_ux: i16[16..32],
+    aenc_wy: i16[0..16],
   }
 
   register AencVn(addr = 0x16, mode = rw, size=4) {
-    aenc_vn: i16[0..16],
-    _: u16[16..32],
+    aenc_vn: i16[16..32],
+    _: u16[0..16],
   }
 
   register PwmPolarities(addr = 0x17, mode = rw, size=4) {
-    pwm_polarities0: bool[0],
-    pwm_polarities1: bool[1],
-    _: u32[2..32],
+    pwm_polarities0: bool[31],
+    pwm_polarities1: bool[30],
+    _: u32[0..30],
   }
 
   register PwmMaxcnt(addr = 0x18, mode = rw, size=4) {
@@ -228,21 +228,21 @@ interface_objects! {
   }
 
   register PwmBbmHBbmL(addr = 0x19, mode = rw, size=4) {
-    pwm_bbm_l: u8[0..8],
-    pwm_bbm_h: u8[8..16],
-    _: u16[16..32],
+    pwm_bbm_l: u8[24..32],
+    pwm_bbm_h: u8[16..24],
+    _: u16[0..16],
   }
 
   register PwmSvChop(addr = 0x1a, mode = rw, size=4) {
-    pwm_chop: u8[0..8],
-    pwm_sv: bool[8],
-    _: u32[9..32],
+    pwm_chop: u8[24..32],
+    pwm_sv: bool[23],
+    _: u32[0..23],
   }
 
   register MotorTypeNPolePairs(addr = 0x1b, mode = rw, size=4) {
-    n_pole_pairs: u16[0..16],
-    motor_type: u8[16..24],
-    _: u8[24..32],
+    n_pole_pairs: u16[16..32],
+    motor_type: u8[8..16],
+    _: u8[0..8],
   }
 
   register PhiEExt(addr = 0x1c, mode = rw, size=4) {
@@ -613,12 +613,12 @@ interface_objects! {
   }
 
   register PidoutUqUdLimits(addr = 0x5d, mode = rw, size=4) {
-    pidout_uq_ud_limits: u16,
-    _: u16[16..32],
+    pidout_uq_ud_limits: u16[16..32],
+    _: u16[0..16],
   }
   register PidTorqueFluxLimits(addr = 0x5e, mode = rw, size=4) {
-    pid_torque_flux_limits: u16,
-    _: u16[16..32],
+    pid_torque_flux_limits: u16[16..32],
+    _: u16[0..16],
   }
   register PidVelocityLimit(addr = 0x60, mode = rw, size=4) {
     pid_velocity_limit: u32,
@@ -631,21 +631,21 @@ interface_objects! {
   }
 
   register ModeRampModeMotion(addr = 0x63, mode = rw, size=4) {
-    mode_motion: MotionMode[0..8],
-    mode_pid_smpl: u8[24..31],
-    mode_ff: u8[16..24],
-    mode_pid_type: bool[31],
-    _: u8[8..16]
+    mode_motion: MotionMode[24..32],
+    mode_pid_smpl: u8[1..8],
+    mode_ff: u8[8..16],
+    mode_pid_type: bool[0],
+    _: u8[16..24]
   }
 
   register PidTorqueFluxTarget(addr = 0x64, mode = rw, size=4) {
-    pid_flux_target: i16[0..16],
-    pid_torque_target: i16[16..32],
+    pid_flux_target: i16[16..32],
+    pid_torque_target: i16[0..16],
   }
 
   register PidTorqueFluxOffset(addr = 0x65, mode = rw, size=4) {
-    pid_flux_offset: i16[0..16],
-    pid_torque_offset: i16[16..32],
+    pid_flux_offset: i16[16..32],
+    pid_torque_offset: i16[0..16],
   }
 
   register PidVelocityTarget(addr = 0x66, mode = rw, size=4) {
@@ -659,8 +659,8 @@ interface_objects! {
   }
 
   register PidTorqueFluxActual(addr = 0x69, mode = rw, size=4) {
-    pid_flux_actual: u16[0..16],
-    pid_torque_actual: u16[16..32],
+    pid_flux_actual: u16[16..32],
+    pid_torque_actual: u16[0..16],
   }
 
   register PidVelocityActual(addr = 0x6a, mode = rw, size=4) {
@@ -788,13 +788,13 @@ interface_objects! {
     interim_pidout_target_position: u32,
   }
   register InterimFocIwyIux(addr = 0x6e, mode = rw, size=4) {
-    interim_foc_iwy: i16[0..16],
-    interim_foc_iux: i16[16..32],
+    interim_foc_iwy: i16[16..32],
+    interim_foc_iux: i16[0..16],
   }
 
   register InterimFocIv(addr = 0x6e, mode = rw, size=4) {
-     interim_foc_iv: i16[0..16],
-    _: u16[16..32],
+     interim_foc_iv: i16[16..32],
+    _: u16[0..16],
   }
   
   register InterimFocIbIa(addr = 0x6e, mode = rw, size=4) {
@@ -822,8 +822,8 @@ interface_objects! {
     interim_pwm_uv: u32,
   }
   register InterimAdcI1I0(addr = 0x6e, mode = rw, size=4) {
-    interim_adc_i0: u16[0..16],
-    interim_adc_i1: u16[16..32],
+    interim_adc_i0: u16[16..32],
+    interim_adc_i1: u16[0..16],
   }
   register InterimPidTorqueTargetFluxTargetTorqueActualFluxActualDiv256(addr = 0x6e, mode = rw, size=4) {
     interim_pid_torque_target_flux_target_torque_actual_flux_actual_div256: u32,
@@ -878,8 +878,8 @@ interface_objects! {
   }
 
   register AdcVmLimits(addr = 0x75, mode = rw, size=4) {
-    adc_vm_limit_low: u16[0..16],
-    adc_vm_limit_high: u16[16..32],
+    adc_vm_limit_low: u16[16..32],
+    adc_vm_limit_high: u16[0..16],
   }
 
   register Tmc4671InputsRaw(addr = 0x76, mode = rw, size=4) {
