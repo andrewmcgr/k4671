@@ -5,7 +5,7 @@ use const_builder::ConstBuilder;
 pub struct TMC4671Config {
     #[builder(default = 1.155)]
     pub current_scale_ma_lsb: f32,
-    #[builder(default = 0.8)]
+    #[builder(default = 2.0)]
     pub run_current: f32,
     #[builder(default = 0.0)]
     pub flux_current: f32,
@@ -85,14 +85,18 @@ pub struct TMC4671Config {
     pub pid_position_limit_low: i32,
     #[builder(default = 0x10000000)]
     pub pid_position_limit_high: i32,
-    #[builder(default = 0x10000000)]
+    #[builder(default = 0x100000)]
     pub pid_velocity_limit: u32,
-    #[builder(default = (2.82, 0.00277))]
+    // #[builder(default = (2.82, 0.00277))]
+    #[builder(default = (3.89, 0.008264))]
     pub pid_position_p_i: (f32, f32),
-    #[builder(default = (1.408, 0.00826))]
+    // #[builder(default = (1.408, 0.00826))]
+    #[builder(default = (2.8209, 0.005556))]
     pub pid_velocity_p_i: (f32, f32),
-    #[builder(default = (4.879, 0.0571))]
+    // #[builder(default = (4.879, 0.0571))]
+    #[builder(default = (9.166, 0.03226))]
     pub pid_torque_p_i: (f32, f32),
-    #[builder(default = (4.879, 0.0571))]
+    // #[builder(default = (4.879, 0.0571))]
+    #[builder(default = (9.166, 0.03226))]
     pub pid_flux_p_i: (f32, f32),
 }

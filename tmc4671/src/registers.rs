@@ -686,32 +686,32 @@ interface_objects! {
   }
 
   register PidErrorAddr(addr = 0x6d, mode = rw, size=4) {
-    value: PidError = PidError::PidErrorPidTorqueError,
+    pid_error_addr: PidError = PidError::PidErrorPidTorqueError,
   }
 
   register PidErrorPidTorqueError(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_torque_error: u32,
+    pid_torque_error: i32,
   }
   register PidErrorPidFluxError(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_flux_error: u32,
+    pid_flux_error: i32,
   }
   register PidErrorPidVelocityError(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_velocity_error: u32,
+    pid_velocity_error: i32,
   }
   register PidErrorPidPositionError(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_position_error: u32,
+    pid_position_error: i32,
   }
   register PidErrorPidTorqueErrorSum(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_torque_error_sum: u32,
+    pid_torque_error_sum: i32,
   }
   register PidErrorPidFluxErrorSum(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_flux_error_sum: u32,
+    pid_flux_error_sum: i32,
   }
   register PidErrorPidVelocityErrorSum(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_velocity_error_sum: u32,
+    pid_velocity_error_sum: i32,
   }
   register PidErrorPidPositionErrorSum(addr = 0x6c, mode = rw, size=4) {
-    pid_error_pid_position_error_sum: u32,
+    pid_position_error_sum: i32,
   }
 
   register InterimData(addr = 0x6e, mode = rw, size=4) {
