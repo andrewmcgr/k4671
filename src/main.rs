@@ -290,12 +290,12 @@ async fn encoder_mon() {
         } else {
             pos as i32
         };
-        info!("Encoder pos {}", pos);
+        // info!("Encoder pos {}", pos);
         TMC_CMD
             .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(pos, 0.0, 0.0))
+            .send(tmc4671::TMCCommand::Move(4*pos, 0.0, 0.0))
             .await;
-        Timer::after_millis(300).await;
+        Timer::after_millis(30).await;
     }
 }
 

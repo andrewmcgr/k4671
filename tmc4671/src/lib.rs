@@ -257,7 +257,7 @@ where
         let maxcnt = (4.0 * TMC_FREQUENCY / freq) as u32 - 1;
         let pwmfreq = 4.0 * TMC_FREQUENCY / (maxcnt as f32 + 1.0);
         let pwmt_ns = maxcnt + 1;
-        let mcnt: u32 = 0x4000_0000; // 50 MHz
+        let mcnt: u32 = 0x1000_0000; // 12.5 MHz
         let mdec = ((pwmt_ns / (3 * (0x8000_0000 / mcnt))) - 2) as u16;
         info!("TMC PWM Frequency: {} Hz", pwmfreq);
         info!("  maxcnt: {}, mdec: {}, mcnt: {:x}", maxcnt, mdec, mcnt);
@@ -751,7 +751,7 @@ where
         info!("TMC Alignment test_U: {}", test_u);
         // Still in stopped mode
         let _ = self
-            .write_register(UqUdExt::default().with_uq_ext(test_u as i16))
+            .write_register(UqUdExt::default().with_ud_ext(test_u as i16))
             .await;
         let _ = self
             .write_register(PidPositionTarget::default().with_pid_position_target(0))
@@ -792,7 +792,7 @@ where
         let test2_u: u16 = (test_u as u32 * f as u32 / i as u32) as u16;
         info!("TMC Alignment test2_U: {}", test2_u);
         let _ = self
-            .write_register(UqUdExt::default().with_uq_ext(test2_u as i16))
+            .write_register(UqUdExt::default().with_ud_ext(test2_u as i16))
             .await;
 
         // Now pulse the voltage and get the rotor aligned
@@ -834,11 +834,12 @@ where
 
         // Switch back to normal operation
         let _ = self.write_register(reg.with_pwm_chop(0)).await;
-        let _ = self.enable_pin.set_low();
-        let _ = self.write_register(UqUdExt::default().with_ud_ext(0)).await;
         let _ = self
-            .write_register(ModeRampModeMotion::default().with_mode_motion(old_mode))
+            .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode))
             .await;
+        // let _ = self.enable_pin.set_low();
+        let _ = self.write_register(UqUdExt::default().with_ud_ext(0)).await;
+
         let _ = self
             .write_register(PhiESelection::default().with_phi_e_selection(old_phi_e_selection))
             .await;
@@ -851,6 +852,10 @@ where
 
         // Set the run current
         let _ = self.set_run_current().await?;
+
+        let _ = self
+            .write_register(ModeRampModeMotion::default().with_mode_motion(old_mode))
+            .await;
         Ok(())
     }
 
@@ -859,10 +864,10 @@ where
         let mut ticker = TMCTimeIterator::new();
         loop {
             while let Some(cmd) = self.command_rx.try_receive().ok() {
-                let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
-                info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
-                let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
-                info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
+                // let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
+                // info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
+                // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
+                // info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
                 match cmd {
                     TMCCommand::Enable => {
                         info!("TMC Command {}", cmd);
@@ -893,20 +898,20 @@ where
                     //     }
                     // }
                     TMCCommand::Move(pos, _vel, _accel) => {
-                        // if self.last_pos != pos {
-                        info!("TMC Command {}", cmd);
-                        let pos_actual = self.get_pid_position_actual().await.unwrap();
-                        let target_actual = self
-                            .read_register::<PidPositionTarget>()
-                            .await
-                            .unwrap()
-                            .read_pid_position_target();
-                        info!(
-                            "TMC Position actual {} target {}",
-                            pos_actual, target_actual
-                        );
-                        self.dump_pid_errors().await.ok();
-                        // }
+                        if self.last_pos != pos {
+                            info!("TMC Command {}", cmd);
+                            let pos_actual = self.get_pid_position_actual().await.unwrap();
+                            let target_actual = self
+                                .read_register::<PidPositionTarget>()
+                                .await
+                                .unwrap()
+                                .read_pid_position_target();
+                            info!(
+                                "TMC Position actual {} target {}",
+                                pos_actual, target_actual
+                            );
+                            self.dump_pid_errors().await.ok();
+                        }
                         self.last_pos = pos;
                         if self.enabled {
                             self.write_register(
