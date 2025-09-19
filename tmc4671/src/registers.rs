@@ -30,6 +30,9 @@ interface_objects! {
     1 TorqueMode,
     2 VelocityMode,
     3 PositionMode,
+    5 PrbsTorqueMode,
+    6 PrbsVelocityMode,
+    7 PrbsPositionMode,
     8 UqUdExtMode,
     _ Invalid(u8),
   }
@@ -659,8 +662,8 @@ interface_objects! {
   }
 
   register PidTorqueFluxActual(addr = 0x69, mode = rw, size=4) {
-    pid_flux_actual: u16[16..32],
-    pid_torque_actual: u16[0..16],
+    pid_flux_actual: i16[16..32],
+    pid_torque_actual: i16[0..16],
   }
 
   register PidVelocityActual(addr = 0x6a, mode = rw, size=4) {

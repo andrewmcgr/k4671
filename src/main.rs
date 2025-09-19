@@ -283,6 +283,7 @@ static ENCODER: OnceLockQei = OnceLockQei::new();
 #[embassy_executor::task]
 async fn encoder_mon() {
     TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
+    let mut old_pos = 0;
     loop {
         let pos = ENCODER.get().await.count();
         let pos = if pos > 32768 {
@@ -290,12 +291,16 @@ async fn encoder_mon() {
         } else {
             pos as i32
         };
+        let pos = pos * 256;
+        let dpos = (pos - old_pos) as f32;
+        old_pos = pos;
+
         // info!("Encoder pos {}", pos);
         TMC_CMD
             .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(4*pos, 0.0, 0.0))
+            .send(tmc4671::TMCCommand::Move(pos, dpos/0.03, 0.0))
             .await;
-        Timer::after_millis(30).await;
+        Timer::after_millis(10).await;
     }
 }
 
@@ -336,7 +341,7 @@ fn main() -> ! {
 
     /*
     STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
-    by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
+    by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of the application.
     In this case we’re using UART4 and UART5, but there’s nothing special about them. Any otherwise unused interrupt
     vector would work exactly the same.
     */

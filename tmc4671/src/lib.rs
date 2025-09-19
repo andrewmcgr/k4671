@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(core_float_math)]
 
+use bytemuck::cast;
 use defmt::*;
 use embedded_devices_derive::forward_register_fns;
 use embedded_interfaces::TransportError;
@@ -27,8 +28,11 @@ pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>
 pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>;
 pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
 
+pub mod biquad;
 pub mod config;
 pub mod registers;
+
+use embedded_interfaces::packable::UnsignedPackable;
 
 // The 4671 has a 25 MHz external clock
 const TMC_FREQUENCY: f32 = 25000000.0;
@@ -134,6 +138,7 @@ where
     flag_pin: P,
     brake_pin: O,
     current_scale_ma_lsb: f32,
+    current_limit: u16,
     run_current: f32,
     flux_current: f32,
     voltage_scale: f32,
@@ -174,6 +179,7 @@ where
             flag_pin: flag_pin,
             brake_pin: brake_pin,
             current_scale_ma_lsb: 1.272,
+            current_limit: 0,
             run_current: 0.0,
             flux_current: 0.0,
             voltage_scale: 43.64,
@@ -200,6 +206,19 @@ macro_rules! pid_impl {
                     )
                     .await;
             }
+        }
+    };
+}
+
+macro_rules! regdump {
+    (($nom:ident),+) => {
+        {
+            info!("TMC Register Dump:");
+            $(
+                let reg = self.read_register::<$nom>().await?;
+                info!("  {}: {:x}", stringify!($nom), reg.0);
+            )+
+            info!("End of Register Dump");
         }
     };
 }
@@ -278,6 +297,42 @@ where
                     .with_dsadc_mdec_b(mdec),
             )
             .await;
+        Ok(())
+    }
+
+    pub async fn set_filter(
+        &mut self,
+        cf: Config,
+        fc: f32,
+        fs: f32,
+    ) -> Result<(), FaultDetectionError<I::BusError>> {
+        let bq = biquad::biquad_lpf(fc, fs);
+        let bqt = bq.to_tmc();
+        info!("TMC Biquad LPF: fc {} Hz, fs {} Hz", fc, fs);
+        info!(
+            "  b0: {}, b1: {}, b2: {}, a1: {}, a2: {}",
+            bq.b0, bq.b1, bq.b2, bq.a1, bq.a2
+        );
+        info!(
+            "  TMC b0: {:x}, b1: {:x}, b2: {:x}, a1: {:x}, a2: {:x}",
+            bqt.b0, bqt.b1, bqt.b2, bqt.a1, bqt.a2
+        );
+        let cfi = cf.to_unsigned();
+        let l = [bqt.a1, bqt.a2, bqt.b0, bqt.b1, bqt.b2];
+        for a in 0..5 {
+            self.write_register(
+                ConfigAddr::default().with_config_addr(Config::from_unsigned(cfi - 6 + a)),
+            )
+            .await?;
+            self.write_register(ConfigData::default().with_config_data(l[a as usize]))
+                .await?;
+        }
+        self.write_register(
+            ConfigAddr::default().with_config_addr(cf),
+        ).await?;
+        self.write_register(
+            ConfigData::default().with_config_data(0xffff_ffff), // not sure which of these is correct
+        ).await?;
         Ok(())
     }
 
@@ -431,6 +486,7 @@ where
 
     pub async fn set_current(&mut self, c: f32) -> Result<(), FaultDetectionError<I::BusError>> {
         let flux = self.calculate_flux_limit(c);
+        self.current_limit = flux;
         info!("TMC Flux Current Limit: {} A -> {}", c, flux);
         let _ = self
             .write_register(PidTorqueFluxLimits::default().with_pid_torque_flux_limits(flux))
@@ -660,11 +716,14 @@ where
         // Set the PWM frequency
         let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
 
+        // Calibrate the ADCs
+        let _ = self.calibrate_adc().await?;
+
         // Set the run current
         let _ = self.set_run_current().await?;
 
-        // Calibrate the ADCs
-        let _ = self.calibrate_adc().await?;
+        // Remove current offsets
+        let _ = self.write_register(PidTorqueFluxOffset::default()).await?;
 
         self.align().await?;
         Ok(())
@@ -737,6 +796,19 @@ where
             .await?
             .read_pid_flux_offset();
 
+        // Zero the position and encoder offsets
+        let _ = self.write_register(AbnDecoderCount::default()).await;
+        let _ = self
+            .write_register(PidPositionActual::default().with_pid_position_actual(0))
+            .await;
+        let _ = self
+            .write_register(
+                AbnDecoderPhiEPhiMOffset::default()
+                    .with_abn_decoder_phi_e_offset(0)
+                    .with_abn_decoder_phi_m_offset(0),
+            )
+            .await;
+
         // Set constant zero phi_e and temporarily disable encoder
         let _ = self
             .write_register(PhiEExt::default().with_phi_e_ext(0))
@@ -766,6 +838,7 @@ where
                     .with_pid_flux_target(0),
             )
             .await;
+
         let _ = self
             .write_register(PidPositionActual::default().with_pid_position_actual(0))
             .await;
@@ -791,8 +864,20 @@ where
         let f = self.calculate_flux_limit(self.run_current * 0.5);
         let test2_u: u16 = (test_u as u32 * f as u32 / i as u32) as u16;
         info!("TMC Alignment test2_U: {}", test2_u);
+        // let _ = self
+        //     .write_register(UqUdExt::default().with_ud_ext(test2_u as i16))
+        //     .await;
+
         let _ = self
-            .write_register(UqUdExt::default().with_ud_ext(test2_u as i16))
+            .write_register(
+                PidTorqueFluxTarget::default()
+                    .with_pid_torque_target(0)
+                    .with_pid_flux_target(test2_u as i16),
+            )
+            .await;
+
+        let _ = self
+            .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::TorqueMode))
             .await;
 
         // Now pulse the voltage and get the rotor aligned
@@ -802,7 +887,7 @@ where
         let _ = self.enable_pin.set_high();
         let mut c = 0;
         for _ in 0..60 {
-            Timer::after(Duration::from_millis(20)).await;
+            Timer::after(Duration::from_millis(2)).await;
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             info!(
                 "TMC Alignment Currents: Iux {}, Iwy {}, Iv {}",
@@ -831,6 +916,7 @@ where
                     .with_abn_decoder_phi_m_offset(0),
             )
             .await;
+        Timer::after(Duration::from_millis(200)).await;
 
         // Switch back to normal operation
         let _ = self.write_register(reg.with_pwm_chop(0)).await;
@@ -839,7 +925,13 @@ where
             .await;
         // let _ = self.enable_pin.set_low();
         let _ = self.write_register(UqUdExt::default().with_ud_ext(0)).await;
-
+        let _ = self
+            .write_register(
+                PidTorqueFluxTarget::default()
+                    .with_pid_torque_target(0)
+                    .with_pid_flux_target(0),
+            )
+            .await;
         let _ = self
             .write_register(PhiESelection::default().with_phi_e_selection(old_phi_e_selection))
             .await;
@@ -852,6 +944,7 @@ where
 
         // Set the run current
         let _ = self.set_run_current().await?;
+        Timer::after(Duration::from_millis(200)).await;
 
         let _ = self
             .write_register(ModeRampModeMotion::default().with_mode_motion(old_mode))
@@ -862,21 +955,59 @@ where
     // Run device. Never returns.
     pub async fn run(&mut self) -> ! {
         let mut ticker = TMCTimeIterator::new();
+        let mut torque_offset: i32 = 0;
+
         loop {
+            torque_offset /= 2;
+            // self.write_register(
+            //     PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
+            // )
+            // .await
+            // .ok();
+            let pos_actual = self.get_pid_position_actual().await.unwrap();
+            let target_actual = self
+                .read_register::<PidPositionTarget>()
+                .await
+                .unwrap()
+                .read_pid_position_target();
+            let v_actual = self
+                .read_register::<PidVelocityActual>()
+                .await
+                .unwrap()
+                .read_pid_velocity_actual();
+            let v_target = self
+                .read_register::<PidVelocityTarget>()
+                .await
+                .unwrap()
+                .read_pid_velocity_target();
+            let r = self.read_register::<PidTorqueFluxActual>().await.unwrap();
+            let torque_actual = r.read_pid_torque_actual();
+            let flux_actual = r.read_pid_flux_actual();
+            info!(
+                "TMC Move to {} from actual {} target {} v_actual {} v_target {} torque {} flux {}",
+                self.last_pos,
+                pos_actual,
+                target_actual,
+                v_actual,
+                v_target,
+                torque_actual,
+                flux_actual
+            );
+            self.dump_pid_errors().await.ok();
+            let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
+            info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
+            // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
+            // info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
             while let Some(cmd) = self.command_rx.try_receive().ok() {
-                // let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
-                // info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
-                // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
-                // info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
                 match cmd {
                     TMCCommand::Enable => {
                         info!("TMC Command {}", cmd);
-                        let _ = self.enable_motor().await;
-                        let _ = self.set_motion_mode(MotionMode::PositionMode).await;
+                        self.enable_motor().await.ok();
+                        self.set_motion_mode(MotionMode::PositionMode).await.ok();
                     }
                     TMCCommand::Disable => {
                         info!("TMC Command {}", cmd);
-                        let _ = self.disable_motor().await;
+                        self.disable_motor().await.ok();
                     }
                     // TMCCommand::SpiSend(data) => {
                     //     info!("TMC Command {:x}", cmd);
@@ -897,20 +1028,18 @@ where
                     //         self.response_tx.publish_immediate(r);
                     //     }
                     // }
-                    TMCCommand::Move(pos, _vel, _accel) => {
+                    TMCCommand::Move(pos, vel, _accel) => {
                         if self.last_pos != pos {
                             info!("TMC Command {}", cmd);
-                            let pos_actual = self.get_pid_position_actual().await.unwrap();
-                            let target_actual = self
-                                .read_register::<PidPositionTarget>()
-                                .await
-                                .unwrap()
-                                .read_pid_position_target();
-                            info!(
-                                "TMC Position actual {} target {}",
-                                pos_actual, target_actual
-                            );
-                            self.dump_pid_errors().await.ok();
+
+                            // Simple velocity feedforward
+                            torque_offset = (1e-4 * vel * self.current_limit as f32) as i32;
+                            if torque_offset > self.current_limit as i32 {
+                                torque_offset = self.current_limit as i32;
+                            }
+                            if torque_offset < -(self.current_limit as i32) {
+                                torque_offset = -(self.current_limit as i32);
+                            }
                         }
                         self.last_pos = pos;
                         if self.enabled {
@@ -919,6 +1048,12 @@ where
                             )
                             .await
                             .ok();
+                            // self.write_register(
+                            //     PidTorqueFluxOffset::default()
+                            //         .with_pid_torque_offset(torque_offset as i16),
+                            // )
+                            // .await
+                            // .ok();
                         }
                     }
                 }

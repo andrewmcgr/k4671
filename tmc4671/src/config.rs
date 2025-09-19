@@ -79,24 +79,24 @@ pub struct TMC4671Config {
     pub mode_pid_smpl: u8,
     #[builder(default = true)] // Advanced PID mode
     pub mode_pid_type: bool,
-    #[builder(default = 31500)] // Voltage limit, 32768 = Vm
+    #[builder(default = 32500)] // Voltage limit, 32768 = Vm
     pub pidout_uq_ud_limits: u16,
     #[builder(default=-0x10000000)]
     pub pid_position_limit_low: i32,
     #[builder(default = 0x10000000)]
     pub pid_position_limit_high: i32,
-    #[builder(default = 0x10000000)]
+    #[builder(default = 0x100000)]
     pub pid_velocity_limit: u32,
-    // #[builder(default = (2.82, 0.00277))]
-    #[builder(default = (11.28, 0.00277))]
+    #[builder(default = (24.8, 0.001193))]
+    // #[builder(default = (2.6, 0.000277))]
     pub pid_position_p_i: (f32, f32),
-    // #[builder(default = (5.04, 0.0049))]
-    #[builder(default = (2.62, 0.00002))]
+    #[builder(default = (1.06, 0.0024))]
+    // #[builder(default = (2.62, 0.00002))]
     pub pid_velocity_p_i: (f32, f32),
     // #[builder(default = (4.879, 0.0571))]
-    #[builder(default = (3.65, 0.0123))]
+    #[builder(default = (0.99, 0.059))]
     pub pid_torque_p_i: (f32, f32),
     // #[builder(default = (4.879, 0.0571))]
-    #[builder(default = (3.65, 0.0123))]
+    #[builder(default = (0.99, 0.059))]
     pub pid_flux_p_i: (f32, f32),
 }

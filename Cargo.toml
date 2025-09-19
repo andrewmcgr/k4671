@@ -13,6 +13,7 @@ embassy-usb = { git = "https://github.com/embassy-rs/embassy.git", features = ["
 embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+num-traits = { version = "0.2", features = ["libm"], default-features = false }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
