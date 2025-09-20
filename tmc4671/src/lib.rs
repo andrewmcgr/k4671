@@ -144,6 +144,7 @@ where
     flux_current: f32,
     voltage_scale: f32,
     voltage_scale_i: u16,
+    ff_error: f32,
     last_pos: i32,
 }
 
@@ -186,6 +187,7 @@ where
             flux_current: 0.0,
             voltage_scale: 43.64,
             voltage_scale_i: 44,
+            ff_error: 0.0,
             last_pos: 0,
         }
     }
@@ -782,9 +784,12 @@ where
             .read_register::<PidErrorPidPositionError>()
             .await?
             .read_pid_position_error();
+
+        self.ff_error = position as f32 / 64.0 + velocity as f32;
+
         info!(
-            "TMC PID Errors: Flux {}, Torque {}, Velocity {}, Position {}",
-            flux, torque, velocity, position
+            "TMC PID Errors: Flux {}, Torque {}, Velocity {}, Position {}, FF {}",
+            flux, torque, velocity, position, self.ff_error
         );
         Ok(())
     }
@@ -976,11 +981,7 @@ where
 
         loop {
             // torque_offset /= 2;
-            // self.write_register(
-            //     PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
-            // )
-            // .await
-            // .ok();
+
             let pos_actual = self.get_pid_position_actual().await.unwrap();
             let target_actual = self
                 .read_register::<PidPositionTarget>()
@@ -1011,6 +1012,16 @@ where
                 flux_actual
             );
             self.dump_pid_errors().await.ok();
+
+            // Apply feedforward from last error
+            torque_offset = - (self.ff_error.signum() * self.current_limit as f32 * 0.3) as i32;
+            info!("TMC Feedforward Torque Offset: {}", torque_offset);
+            self.write_register(
+                PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
+            )
+            .await
+            .ok();
+
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
             // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
@@ -1048,15 +1059,6 @@ where
                     TMCCommand::Move(pos, vel, _accel) => {
                         if self.last_pos != pos {
                             info!("TMC Command {}", cmd);
-
-                            // Simple velocity feedforward
-                            // torque_offset = (1e-4 * vel * self.current_limit as f32) as i32;
-                            if torque_offset > self.current_limit as i32 {
-                                torque_offset = self.current_limit as i32;
-                            }
-                            if torque_offset < -(self.current_limit as i32) {
-                                torque_offset = -(self.current_limit as i32);
-                            }
                         }
                         self.last_pos = pos;
                         if self.enabled {
@@ -1065,12 +1067,6 @@ where
                             )
                             .await
                             .ok();
-                            // self.write_register(
-                            //     PidTorqueFluxOffset::default()
-                            //         .with_pid_torque_offset(torque_offset as i16),
-                            // )
-                            // .await
-                            // .ok();
                         }
                     }
                 }

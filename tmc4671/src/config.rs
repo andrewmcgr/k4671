@@ -87,10 +87,10 @@ pub struct TMC4671Config {
     pub pid_position_limit_high: i32,
     #[builder(default = 0x1000000)]
     pub pid_velocity_limit: u32,
-    #[builder(default = (6.57, 0.0026))]
+    #[builder(default = (6.57, 0.00))]
     // #[builder(default = (2.6, 0.000277))]
     pub pid_position_p_i: (f32, f32),
-    #[builder(default = (1.31, 0.0056))]
+    #[builder(default = (1.31, 0.00))]
     // #[builder(default = (2.62, 0.00002))]
     pub pid_velocity_p_i: (f32, f32),
     // #[builder(default = (4.879, 0.0571))]
