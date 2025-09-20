@@ -213,7 +213,7 @@ macro_rules! pid_impl {
                 let val = [<Pid $nom:camel P $nom:camel I> ]::default()
                             .[<with_pid_ $nom:lower _p>](I8F8::from_num(p).to_bits())
                             .[<with_pid_ $nom:lower _i>](I4F12::from_num(i).to_bits());
-                info!("TMC Set {} PID: P {}, I {}, Reg {:x}", stringify!($nom), p, i, val.0);
+                trace!("TMC Set {} PID: P {}, I {}, Reg {:x}", stringify!($nom), p, i, val.0);
                 let _ = self
                     .write_register(
                         val
@@ -227,12 +227,12 @@ macro_rules! pid_impl {
 macro_rules! regdump {
     (($nom:ident),+) => {
         {
-            info!("TMC Register Dump:");
+            trace!("TMC Register Dump:");
             $(
                 let reg = self.read_register::<$nom>().await?;
-                info!("  {}: {:x}", stringify!($nom), reg.0);
+                trace!("  {}: {:x}", stringify!($nom), reg.0);
             )+
-            info!("End of Register Dump");
+            trace!("End of Register Dump");
         }
     };
 }
@@ -273,7 +273,7 @@ where
             .await;
         let date = self.read_register::<ChipinfoSiDate>().await?;
 
-        info!(
+        trace!(
             "TMC Detected {:x}, v{}.{}, {:x}",
             typ,
             ver.read_chipinfo_si_version_hi(),
@@ -293,8 +293,8 @@ where
         let pwmt_ns = maxcnt + 1;
         let mcnt: u32 = 0x1000_0000; // 12.5 MHz
         let mdec = ((pwmt_ns / (3 * (0x8000_0000 / mcnt))) - 2) as u16;
-        info!("TMC PWM Frequency: {} Hz", pwmfreq);
-        info!("  maxcnt: {}, mdec: {}, mcnt: {:x}", maxcnt, mdec, mcnt);
+        trace!("TMC PWM Frequency: {} Hz", pwmfreq);
+        trace!("  maxcnt: {}, mdec: {}, mcnt: {:x}", maxcnt, mdec, mcnt);
         let _ = self
             .write_register(PwmMaxcnt::default().with_pwm_maxcnt(maxcnt))
             .await;
@@ -327,12 +327,12 @@ where
     ) -> Result<(), FaultDetectionError<I::BusError>> {
         let bq = biquad::biquad_lpf(fc, fs);
         let bqt = bq.to_tmc();
-        info!("TMC Biquad LPF: fc {} Hz, fs {} Hz", fc, fs);
-        info!(
+        trace!("TMC Biquad LPF: fc {} Hz, fs {} Hz", fc, fs);
+        trace!(
             "  b0: {}, b1: {}, b2: {}, a1: {}, a2: {}",
             bq.b0, bq.b1, bq.b2, bq.a1, bq.a2
         );
-        info!(
+        trace!(
             "  TMC b0: {:x}, b1: {:x}, b2: {:x}, a1: {:x}, a2: {:x}",
             bqt.b0 as u32, bqt.b1 as u32, bqt.b2 as u32, bqt.a1 as u32, bqt.a2 as u32
         );
@@ -431,14 +431,14 @@ where
             .write_register(cfg_adc.with_cfg_adc_i0(0).with_cfg_adc_i1(0))
             .await;
         let reg = self.read_register::<DsAnalogInputStageCfg>().await?;
-        info!(
+        trace!(
             "TMC ADC Config I0 {}, I1 {}",
             reg.read_cfg_adc_i0(),
             reg.read_cfg_adc_i1()
         );
 
         let (i0_offset, i1_offset) = self.sample_adc().await?;
-        info!("TMC ADC Offsets: {}, {}", i0_offset, i1_offset);
+        trace!("TMC ADC Offsets: {}, {}", i0_offset, i1_offset);
         let _ = self
             .write_register(
                 AdcI0ScaleOffset::default()
@@ -455,10 +455,10 @@ where
             .await;
         // Calibrate voltage ADC for brake settings
         let (vmh, vml) = self.sample_vm().await?;
-        // info!("TMC VM Range: {}, {}", vmh, vml);
+        // trace!("TMC VM Range: {}, {}", vmh, vml);
         let vmr = vmh - vml;
         let high: u32 = vmr as u32 / 2 + vmh as u32 + (0.05 * self.voltage_scale + 0.5) as u32;
-        // info!("TMC VM Brake Range: {}, {}", high, vmr / 2 + vmh);
+        // trace!("TMC VM Brake Range: {}, {}", high, vmr / 2 + vmh);
         if high < u16::MAX as u32 {
             let _ = self
                 .write_register(
@@ -478,19 +478,19 @@ where
                 .await;
         }
         let reg = self.read_register::<AdcI0ScaleOffset>().await?;
-        info!(
+        trace!(
             "TMC ADC I0 Offset {}, Scale {}",
             reg.read_adc_i0_offset(),
             reg.read_adc_i0_scale()
         );
         let reg = self.read_register::<AdcI1ScaleOffset>().await?;
-        info!(
+        trace!(
             "TMC ADC I1 Offset {}, Scale {}",
             reg.read_adc_i1_offset(),
             reg.read_adc_i1_scale()
         );
         let reg = self.read_register::<AdcVmLimits>().await?;
-        info!(
+        trace!(
             "TMC ADC VM High {}, Low {}",
             reg.read_adc_vm_limit_high(),
             reg.read_adc_vm_limit_low()
@@ -506,7 +506,7 @@ where
     pub async fn set_current(&mut self, c: f32) -> Result<(), FaultDetectionError<I::BusError>> {
         let flux = self.calculate_flux_limit(c);
         self.current_limit = flux;
-        info!("TMC Flux Current Limit: {} A -> {}", c, flux);
+        trace!("TMC Flux Current Limit: {} A -> {}", c, flux);
         let _ = self
             .write_register(PidTorqueFluxLimits::default().with_pid_torque_flux_limits(flux))
             .await;
@@ -548,7 +548,7 @@ where
     ) -> Result<(i16, i16, i16), FaultDetectionError<I::BusError>> {
         let i_u = self.read_register::<AdcIwyIux>().await?;
         let i_v = self.read_register::<AdcIv>().await?;
-        // info!("TMC ADC Currents Raw: {:x}, {:x}", i_u.0, i_v.0);
+        // trace!("TMC ADC Currents Raw: {:x}, {:x}", i_u.0, i_v.0);
         Ok((i_u.read_adc_iux(), i_u.read_adc_iwy(), i_v.read_adc_iv()))
     }
 
@@ -803,7 +803,7 @@ where
         self.ff_error = position as f32 * self.ff_pos + velocity as f32 * self.ff_vel
             + torque as f32 * self.ff_torque;
 
-        info!(
+        trace!(
             "TMC PID Errors: Flux {}, Torque {}, Velocity {}, Position {}, FF {}",
             flux, torque, velocity, position, self.ff_error
         );
@@ -857,7 +857,7 @@ where
         // Start at a low voltage and see if we detect current
         // This should wind up being about 0.1 V
         let test_u = VM_RANGE / (4 * self.voltage_scale_i);
-        info!("TMC Alignment test_U: {}", test_u);
+        trace!("TMC Alignment test_U: {}", test_u);
         // Still in stopped mode
         let _ = self
             .write_register(UqUdExt::default().with_ud_ext(test_u as i16))
@@ -890,7 +890,7 @@ where
         Timer::after(Duration::from_millis(100)).await;
         let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
         let _ = self.write_register(reg.with_pwm_chop(0)).await;
-        info!(
+        trace!(
             "TMC Alignment Currents: Iux {}, Iwy {}, Iv {}",
             iux, iwy, iv
         );
@@ -900,7 +900,7 @@ where
         let i = (iux.abs() + iwy.abs() + iv.abs()) as u16;
         let f = self.calculate_flux_limit(self.run_current * 0.5);
         let test2_u: u16 = (test_u as u32 * f as u32 / i as u32) as u16;
-        info!("TMC Alignment test2_U: {}", test2_u);
+        trace!("TMC Alignment test2_U: {}", test2_u);
         // let _ = self
         //     .write_register(UqUdExt::default().with_ud_ext(test2_u as i16))
         //     .await;
@@ -926,13 +926,13 @@ where
         for _ in 0..60 {
             Timer::after(Duration::from_millis(2)).await;
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
-            info!(
+            trace!(
                 "TMC Alignment Currents: Iux {}, Iwy {}, Iv {}",
                 iux, iwy, iv
             );
             let reg = self.read_register::<PidPositionActual>().await?;
             let pos = reg.read_pid_position_actual();
-            info!("  Position Actual: {}", pos);
+            trace!("  Position Actual: {}", pos);
             if pos != last_pos || c < 20 {
                 last_pos = pos;
                 c += 1;
@@ -1017,7 +1017,7 @@ where
             let r = self.read_register::<PidTorqueFluxActual>().await.unwrap();
             let torque_actual = r.read_pid_torque_actual();
             let flux_actual = r.read_pid_flux_actual();
-            info!(
+            trace!(
                 "TMC Move to {} from actual {} target {} v_actual {} v_target {} torque {} flux {}",
                 self.last_pos,
                 pos_actual,
@@ -1031,7 +1031,7 @@ where
 
             // Apply feedforward from last error
             torque_offset = - (self.ff_error.signum() * self.current_limit as f32 * 0.3) as i32;
-            info!("TMC Feedforward Torque Offset: {}", torque_offset);
+            trace!("TMC Feedforward Torque Offset: {}", torque_offset);
             self.write_register(
                 PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
             )
@@ -1039,9 +1039,9 @@ where
             .ok();
 
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
-            info!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
+            trace!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
             // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
-            // info!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
+            // trace!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
             while let Some(cmd) = self.command_rx.try_receive().ok() {
                 match cmd {
                     TMCCommand::Enable => {
@@ -1054,11 +1054,11 @@ where
                         self.disable_motor().await.ok();
                     }
                     // TMCCommand::SpiSend(data) => {
-                    //     info!("TMC Command {:x}", cmd);
+                    //     trace!("TMC Command {:x}", cmd);
                     //     let _ = self.interface.write(&data).await;
                     // }
                     // TMCCommand::SpiTransfer(data) => {
-                    //     info!("TMC Command {:x}", cmd);
+                    //     trace!("TMC Command {:x}", cmd);
                     //     let mut resp: [u8; 5] = [0; 5];
                     //     if self
                     //         .interface
@@ -1068,7 +1068,7 @@ where
                     //         .is_ok()
                     //     {
                     //         let r = TMCCommandResponse::SpiResponse(resp);
-                    //         info!("TMC Responds {:x}", r);
+                    //         trace!("TMC Responds {:x}", r);
                     //         self.response_tx.publish_immediate(r);
                     //     }
                     // }

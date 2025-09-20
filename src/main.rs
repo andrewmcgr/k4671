@@ -17,7 +17,7 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_stm32::{timer, timer::qei};
 use embassy_sync::{once_lock::OnceLock, signal::Signal};
-use embassy_time::{Instant, TICK_HZ, Timer};
+use embassy_time::{Instant, TICK_HZ, Ticker, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
@@ -158,11 +158,11 @@ fn process_moves(state: &mut State, next_time: Instant) {
         }
         _ => 0.0,
     };
-    // block_on(
-    //     TMC_CMD
-    //         .dyn_sender()
-    //         .send(tmc4671::TMCCommand::Move(target_position, v0, a0)),
-    // );
+    block_on(
+        TMC_CMD
+            .dyn_sender()
+            .send(tmc4671::TMCCommand::Move(target_position, v0, a0)),
+    );
 }
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
@@ -172,6 +172,8 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
         [0; usb_anchor::MAX_PACKET_SIZE as usize];
     let mut ticker = tmc4671::TMCTimeIterator::new();
+    info!("Hello Anchor!");
+
     loop {
         let ticks = ticker.next();
         // Move processing
@@ -204,10 +206,12 @@ async fn usb_comms(r: UsbResources) {
     // Enable VBUS detection, OpenFFBoard requires it.
     config.vbus_detection = true;
 
-    let driver = Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
+    info!("Hello USB!");
+
+    let driver: Driver<'_, peripherals::USB_OTG_FS> =
+        Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
     let in_pipe = usb_anchor::AnchorPipe::new();
-
     let mut anchor = usb_anchor::UsbAnchor::new();
     let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
     let anchor_protocol_fut = anchor_protocol(&in_pipe);
@@ -298,7 +302,7 @@ async fn encoder_mon() {
         // info!("Encoder pos {}", pos);
         TMC_CMD
             .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(pos, dpos/0.03, 0.0))
+            .send(tmc4671::TMCCommand::Move(pos, dpos / 0.03, 0.0))
             .await;
         Timer::after_millis(10).await;
     }
@@ -358,7 +362,7 @@ fn main() -> ! {
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     spawner.spawn(blink(r.led).expect("Spawn failure"));
-    spawner.spawn(encoder_mon().expect("Spawn failure"));
+    // spawner.spawn(encoder_mon().expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV

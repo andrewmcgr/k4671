@@ -1,5 +1,6 @@
 use crate::LED_STATE;
 use crate::LedState::Connecting;
+use defmt::info;
 use embassy_futures::join::join;
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
@@ -72,6 +73,7 @@ impl UsbAnchor {
         D: Driver<'d>,
         Self: 'd,
     {
+        info!("Hello Anchor USB!");
         let mut config = Config::new(0x1209, 0x4671);
         config.manufacturer = Some("k4671");
         config.product = Some("K4671 Motor Driver");
