@@ -139,6 +139,7 @@ where
     brake_pin: O,
     current_scale_ma_lsb: f32,
     current_limit: u16,
+    pwmfreq: f32,
     run_current: f32,
     flux_current: f32,
     voltage_scale: f32,
@@ -180,6 +181,7 @@ where
             brake_pin: brake_pin,
             current_scale_ma_lsb: 1.272,
             current_limit: 0,
+            pwmfreq: 50e3,
             run_current: 0.0,
             flux_current: 0.0,
             voltage_scale: 43.64,
@@ -272,9 +274,10 @@ where
     pub async fn set_pwm_freq(
         &mut self,
         freq: f32,
-    ) -> Result<(), FaultDetectionError<I::BusError>> {
+    ) -> Result<f32, FaultDetectionError<I::BusError>> {
         let maxcnt = (4.0 * TMC_FREQUENCY / freq) as u32 - 1;
         let pwmfreq = 4.0 * TMC_FREQUENCY / (maxcnt as f32 + 1.0);
+        self.pwmfreq = pwmfreq;
         let pwmt_ns = maxcnt + 1;
         let mcnt: u32 = 0x1000_0000; // 12.5 MHz
         let mdec = ((pwmt_ns / (3 * (0x8000_0000 / mcnt))) - 2) as u16;
@@ -297,9 +300,13 @@ where
                     .with_dsadc_mdec_b(mdec),
             )
             .await;
-        Ok(())
+        Ok(pwmfreq)
     }
 
+    // Set a biquad filter.
+    // Argument CF is the address of the enable register
+    // fc is the center frequency in Hz
+    // fs is the sampling frequency in Hz
     pub async fn set_filter(
         &mut self,
         cf: Config,
@@ -315,7 +322,7 @@ where
         );
         info!(
             "  TMC b0: {:x}, b1: {:x}, b2: {:x}, a1: {:x}, a2: {:x}",
-            bqt.b0, bqt.b1, bqt.b2, bqt.a1, bqt.a2
+            bqt.b0 as u32, bqt.b1 as u32, bqt.b2 as u32, bqt.a1 as u32, bqt.a2 as u32
         );
         let cfi = cf.to_unsigned();
         let l = [bqt.a1, bqt.a2, bqt.b0, bqt.b1, bqt.b2];
@@ -324,15 +331,15 @@ where
                 ConfigAddr::default().with_config_addr(Config::from_unsigned(cfi - 6 + a)),
             )
             .await?;
-            self.write_register(ConfigData::default().with_config_data(l[a as usize]))
+            self.write_register(ConfigData::default().with_config_data(l[a as usize] as u32))
                 .await?;
         }
-        self.write_register(
-            ConfigAddr::default().with_config_addr(cf),
-        ).await?;
+        self.write_register(ConfigAddr::default().with_config_addr(cf))
+            .await?;
         self.write_register(
             ConfigData::default().with_config_data(0xffff_ffff), // not sure which of these is correct
-        ).await?;
+        )
+        .await?;
         Ok(())
     }
 
@@ -552,6 +559,7 @@ where
 
         // Disable the motor
         self.disable_motor().await?;
+        self.brake_pin.set_low().ok();
 
         // Save configuration parameters
         self.current_scale_ma_lsb = cfg.current_scale_ma_lsb;
@@ -714,16 +722,24 @@ where
             .await;
 
         // Set the PWM frequency
-        let _ = self.set_pwm_freq(cfg.pwm_freq_target).await?;
+        let pwmfreq = self.set_pwm_freq(cfg.pwm_freq_target).await?;
 
         // Calibrate the ADCs
-        let _ = self.calibrate_adc().await?;
+        self.calibrate_adc().await?;
 
         // Set the run current
-        let _ = self.set_run_current().await?;
+        self.set_run_current().await?;
+
+        // Set default velocity filter
+        self.set_filter(
+            Config::ConfigBiquadVEnable,
+            1550.0,
+            pwmfreq / (cfg.mode_pid_smpl + 1) as f32,
+        )
+        .await?;
 
         // Remove current offsets
-        let _ = self.write_register(PidTorqueFluxOffset::default()).await?;
+        self.write_register(PidTorqueFluxOffset::default()).await?;
 
         self.align().await?;
         Ok(())
@@ -872,7 +888,7 @@ where
             .write_register(
                 PidTorqueFluxTarget::default()
                     .with_pid_torque_target(0)
-                    .with_pid_flux_target(test2_u as i16),
+                    .with_pid_flux_target(f as i16),
             )
             .await;
 
@@ -906,6 +922,7 @@ where
         }
 
         // We are now mechanically aligned, set up the encoder offsets.
+        let _ = self.write_register(AbnDecoderCount::default()).await;
         let _ = self
             .write_register(PidPositionActual::default().with_pid_position_actual(0))
             .await;
@@ -924,7 +941,7 @@ where
             .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode))
             .await;
         // let _ = self.enable_pin.set_low();
-        let _ = self.write_register(UqUdExt::default().with_ud_ext(0)).await;
+        // let _ = self.write_register(UqUdExt::default().with_ud_ext(0)).await;
         let _ = self
             .write_register(
                 PidTorqueFluxTarget::default()
@@ -958,7 +975,7 @@ where
         let mut torque_offset: i32 = 0;
 
         loop {
-            torque_offset /= 2;
+            // torque_offset /= 2;
             // self.write_register(
             //     PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
             // )
@@ -1033,7 +1050,7 @@ where
                             info!("TMC Command {}", cmd);
 
                             // Simple velocity feedforward
-                            torque_offset = (1e-4 * vel * self.current_limit as f32) as i32;
+                            // torque_offset = (1e-4 * vel * self.current_limit as f32) as i32;
                             if torque_offset > self.current_limit as i32 {
                                 torque_offset = self.current_limit as i32;
                             }

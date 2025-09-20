@@ -85,18 +85,18 @@ pub struct TMC4671Config {
     pub pid_position_limit_low: i32,
     #[builder(default = 0x10000000)]
     pub pid_position_limit_high: i32,
-    #[builder(default = 0x100000)]
+    #[builder(default = 0x1000000)]
     pub pid_velocity_limit: u32,
-    #[builder(default = (24.8, 0.001193))]
+    #[builder(default = (6.57, 0.0026))]
     // #[builder(default = (2.6, 0.000277))]
     pub pid_position_p_i: (f32, f32),
-    #[builder(default = (1.06, 0.0024))]
+    #[builder(default = (1.31, 0.0056))]
     // #[builder(default = (2.62, 0.00002))]
     pub pid_velocity_p_i: (f32, f32),
     // #[builder(default = (4.879, 0.0571))]
-    #[builder(default = (0.99, 0.059))]
+    #[builder(default = (1.577, 0.1))]
     pub pid_torque_p_i: (f32, f32),
     // #[builder(default = (4.879, 0.0571))]
-    #[builder(default = (0.99, 0.059))]
+    #[builder(default = (1.577, 0.1))]
     pub pid_flux_p_i: (f32, f32),
 }

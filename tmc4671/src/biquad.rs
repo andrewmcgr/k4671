@@ -11,11 +11,11 @@ pub struct Biquad {
 }
 
 pub struct BiquadTmc {
-    pub a1: u32,
-    pub a2: u32,
-    pub b0: u32,
-    pub b1: u32,
-    pub b2: u32,
+    pub a1: i32,
+    pub a2: i32,
+    pub b0: i32,
+    pub b1: i32,
+    pub b2: i32,
 }
 
 impl Biquad {
@@ -31,11 +31,11 @@ impl Biquad {
     }
 
     pub fn to_tmc(&self) -> BiquadTmc {
-        let b0 = (self.b0 / self.a0 * (1 << 29) as f32).round() as u32;
-        let b1 = (self.b1 / self.a0 * (1 << 29) as f32).round() as u32;
-        let b2 = (self.b2 / self.a0 * (1 << 29) as f32).round() as u32;
-        let a1 = ((-self.a1) / self.a0 * (1 << 29) as f32).round() as u32;
-        let a2 = ((-self.a2) / self.a0 * (1 << 29) as f32).round() as u32;
+        let b0 = ((self.b0 / self.a0 )* (1 << 29) as f32).round() as i32;
+        let b1 = ((self.b1 / self.a0) * (1 << 29) as f32).round() as i32;
+        let b2 = ((self.b2 / self.a0) * (1 << 29) as f32).round() as i32;
+        let a1 = ((-self.a1 / self.a0) * (1 << 29) as f32).round() as i32;
+        let a2 = ((-self.a2 / self.a0) * (1 << 29) as f32).round() as i32;
 
         BiquadTmc { a1, a2, b0, b1, b2 }
     }

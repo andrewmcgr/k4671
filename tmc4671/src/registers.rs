@@ -473,75 +473,75 @@ interface_objects! {
   }
 
   register ConfigBiquadXA1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_xa1: u32,
+    config_biquad_xa1: i32,
   }
 
   register ConfigBiquadXA2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_xa2: u32,
+    config_biquad_xa2: i32,
   }
 
   register ConfigBiquadXB0(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_xb0: u32,
+    config_biquad_xb0: i32,
   }
   register ConfigBiquadXB1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_xb1: u32,
+    config_biquad_xb1: i32,
   }
   register ConfigBiquadXB2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_xb2: u32,
+    config_biquad_xb2: i32,
   }
   register ConfigBiquadXEnable(addr = 0x4d, mode = rw, size=4) {
     config_biquad_x_enable: u32,
   }
   register ConfigBiquadVA1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_va1: u32,
+    config_biquad_va1: i32,
   }
   register ConfigBiquadVA2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_va2: u32,
+    config_biquad_va2: i32,
   }
   register ConfigBiquadVB0(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_vb0: u32,
+    config_biquad_vb0: i32,
   }
   register ConfigBiquadVB1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_vb1: u32,
+    config_biquad_vb1: i32,
   }
   register ConfigBiquadVB2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_vb2: u32,
+    config_biquad_vb2: i32,
   }
   register ConfigBiquadVEnable(addr = 0x4d, mode = rw, size=4) {
     config_biquad_v_enable: u32,
   }
   register ConfigBiquadTA1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_ta1: u32,
+    config_biquad_ta1: i32,
   }
   register ConfigBiquadTA2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_ta2: u32,
+    config_biquad_ta2: i32,
   }
   register ConfigBiquadTB0(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_tb0: u32,
+    config_biquad_tb0: i32,
   }
   register ConfigBiquadTB1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_tb1: u32,
+    config_biquad_tb1: i32,
   }
   register ConfigBiquadTB2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_tb2: u32,
+    config_biquad_tb2: i32,
   }
   register ConfigBiquadTEnable(addr = 0x4d, mode = rw, size=4) {
     config_biquad_t_enable: u32,
   }
   register ConfigBiquadFA1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_fa1: u32,
+    config_biquad_fa1: i32,
   }
   register ConfigBiquadFA2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_fa2: u32,
+    config_biquad_fa2: i32,
   }
   register ConfigBiquadFB0(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_fb0: u32,
+    config_biquad_fb0: i32,
   }
   register ConfigBiquadFB1(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_fb1: u32,
+    config_biquad_fb1: i32,
   }
   register ConfigBiquadFB2(addr = 0x4d, mode = rw, size=4) {
-    config_biquad_fb2: u32,
+    config_biquad_fb2: i32,
   }
   register ConfigBiquadFEnable(addr = 0x4d, mode = rw, size=4) {
     config_biquad_f_enable: u32,
