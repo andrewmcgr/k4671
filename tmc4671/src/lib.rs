@@ -139,12 +139,17 @@ where
     brake_pin: O,
     current_scale_ma_lsb: f32,
     current_limit: u16,
+    ff_current_limit: u16,
     pwmfreq: f32,
     run_current: f32,
     flux_current: f32,
     voltage_scale: f32,
     voltage_scale_i: u16,
     ff_error: f32,
+    ff_pos: f32,
+    ff_vel: f32,
+    ff_torque: f32,
+    ff_current: f32,
     last_pos: i32,
 }
 
@@ -182,12 +187,17 @@ where
             brake_pin: brake_pin,
             current_scale_ma_lsb: 1.272,
             current_limit: 0,
+            ff_current_limit: 0,
             pwmfreq: 50e3,
             run_current: 0.0,
             flux_current: 0.0,
             voltage_scale: 43.64,
             voltage_scale_i: 44,
             ff_error: 0.0,
+            ff_pos: 0.0,
+            ff_vel: 0.0,
+            ff_torque: 0.0,
+            ff_current: 0.0,
             last_pos: 0,
         }
     }
@@ -567,6 +577,11 @@ where
         self.current_scale_ma_lsb = cfg.current_scale_ma_lsb;
         self.run_current = cfg.run_current;
         self.flux_current = cfg.flux_current;
+        self.ff_current_limit = self.calculate_flux_limit(cfg.ff_current);
+        self.ff_pos = cfg.ff_pos / cfg.n_pole_pairs as f32;
+        self.ff_vel = cfg.ff_vel;
+        self.ff_torque = cfg.ff_torque;
+
         self.voltage_scale = cfg.voltage_scale;
         self.voltage_scale_i = round(self.voltage_scale) as u16;
 
@@ -785,7 +800,8 @@ where
             .await?
             .read_pid_position_error();
 
-        self.ff_error = position as f32 / 64.0 + velocity as f32;
+        self.ff_error = position as f32 * self.ff_pos + velocity as f32 * self.ff_vel
+            + torque as f32 * self.ff_torque;
 
         info!(
             "TMC PID Errors: Flux {}, Torque {}, Velocity {}, Position {}, FF {}",

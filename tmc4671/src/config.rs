@@ -5,10 +5,18 @@ use const_builder::ConstBuilder;
 pub struct TMC4671Config {
     #[builder(default = 1.155)]
     pub current_scale_ma_lsb: f32,
-    #[builder(default = 2.0)]
+    #[builder(default = 2.5)]
     pub run_current: f32,
     #[builder(default = 0.0)]
     pub flux_current: f32,
+    #[builder(default = 1.0)]
+    pub ff_current: f32,
+    #[builder(default = 1.0)]
+    pub ff_pos: f32,
+    #[builder(default = 1.0)]
+    pub ff_vel: f32,
+    #[builder(default = 1.0)]
+    pub ff_torque: f32,
     #[builder(default = 43.64)]
     pub voltage_scale: f32,
     #[builder(default = 50e3)]
