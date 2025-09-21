@@ -16,6 +16,7 @@ pub fn config_stepper(
     _invert_step: u8,
     _step_pulse_ticks: u32,
 ) {
+    debug!("Config Stepper {} {} {} {} {}", oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks);
     context.stepper.stepper_oid = Some(oid);
 }
 
@@ -53,7 +54,7 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     }
     debug!("Reset step clock {}", clock);
     context.stepper.reset_clock(Instant::from_micros(
-        Instant::now().as_micros() & 0xffff_ffff << 32 & (clock as u64),
+        Instant::now().as_micros() & (0xffff_ffff << 32) & (clock as u64),
     ));
 }
 
@@ -97,10 +98,11 @@ pub fn config_digital_out(
     _default_value: u8,
     _max_duration: u32,
 ) {
+    let epin = Pins::try_from(pin);
+    debug!("Config digital out {} {} {}", oid, pin, epin);
     if pin != u8::from(Pins::Enable) {
         return;
     }
-    debug!("Config digital out {} {}", oid, pin);
     context.stepper.stepper_enable_oid = Some(oid);
 }
 
@@ -139,6 +141,7 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
 }
 
 klipper_enumeration! {
+    #[derive(Debug, defmt::Format)]
     #[klipper_enumeration(name = "pin", rename_all="snake_case")]
     enum Pins {
         ChipSelect,

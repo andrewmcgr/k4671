@@ -1,5 +1,6 @@
 use anchor::*;
 use defmt::*;
+use tmc4671::registers::PidPositionLimitHigh;
 
 use crate::LED_STATE;
 use crate::LedState::Connected;
@@ -16,19 +17,21 @@ const CLOCK_FREQ: u32 = 1_000_000;
 #[klipper_command]
 pub fn get_uptime(_context: &mut crate::State) {
     let c = Instant::now().as_micros();
-    debug!("uptime {}", c);
+    let clock: u32 = (c & 0xFFFF_FFFF) as u32;
+    let high: u32 = (c >> 32) as u32;
+    debug!("uptime {} {} {}", c, high, clock);
     klipper_reply!(
         uptime,
-        high: u32 = (c >> 32) as u32,
-        clock: u32 = (c & 0xFFFF_FFFF) as u32
+        high: u32,
+        clock: u32
     );
 }
 
 #[klipper_command]
 pub fn get_clock() {
-    let c = (Instant::now().as_micros() & 0xFFFF_FFFF) as u32;
+    let c = Instant::now().as_micros();
     debug!("clock {}", c);
-    klipper_reply!(clock, clock: u32 = c);
+    klipper_reply!(clock, clock: u32 = (c & 0xFFFF_FFFF) as u32);
 }
 
 #[klipper_command]
