@@ -1,7 +1,8 @@
 use crate::TMC_CMD;
+use defmt::*;
 use embassy_futures::block_on;
+use embassy_sync::blocking_mutex::{Mutex as BlockingMutex, raw::CriticalSectionRawMutex};
 use embassy_time::{Duration, Instant};
-use embassy_sync::blocking_mutex::{raw::CriticalSectionRawMutex, Mutex as BlockingMutex};
 use heapless::Deque;
 use tmc4671::*;
 
@@ -20,7 +21,6 @@ impl crate::target_queue::Mutex for MutexWrapper {
 }
 
 pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 2000>;
-
 
 #[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Direction {
@@ -235,6 +235,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 .emit(self.target_time.next(), reset_target, callbacks);
         }
         while self.callback_state.can_append(callbacks) {
+            // debug!("ES advance");
             let cmd = match self.current_move.as_mut() {
                 None => match self.queue.pop_front() {
                     None => return, // Nothing to do
@@ -277,6 +278,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 self.current_move = None
             }
         }
+        // debug!("ES advance END");
     }
 
     pub fn queue_move(&mut self, interval: u32, count: u16, add: i16) -> bool {
@@ -286,6 +288,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             add,
             direction: self.next_direction,
         };
+        // debug!("ES queue_move {}", cmd);
         if self.queue.push_back(cmd).is_err() {
             return false;
         }
@@ -322,6 +325,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         } else {
             TMCCommand::Disable
         };
+        debug!("ES set_enabled {}", cmd);
         block_on(TMC_CMD.dyn_sender().send(cmd));
     }
 }

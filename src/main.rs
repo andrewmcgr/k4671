@@ -107,7 +107,7 @@ impl TransportOutput for BufferTransportOutput {
     type Output = ScratchOutput;
     fn output(&self, f: impl FnOnce(&mut Self::Output)) {
         let mut scratch = ScratchOutput::new();
-        trace!("Output from Anchor!");
+        // trace!("Output from Anchor!");
         f(&mut scratch);
         let output = scratch.result();
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
@@ -181,11 +181,11 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
         // Now we're done with moves, check for commands from Klipper
         while let Ok(n) = pipe.try_read(&mut rx) {
             receiver_buf.extend(&rx[..n]);
-            trace!("Pipe read for Anchor!");
+            // trace!("Pipe read for Anchor!");
             let recv_data = receiver_buf.data();
             if !recv_data.is_empty() {
                 let mut wrap = SliceInputBuffer::new(recv_data);
-                trace!("Data for Anchor!");
+                // trace!("Data for Anchor!");
                 KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
                 let consumed = recv_data.len() - wrap.available();
                 if consumed > 0 {

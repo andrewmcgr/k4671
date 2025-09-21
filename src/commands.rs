@@ -16,7 +16,7 @@ const CLOCK_FREQ: u32 = 1_000_000;
 #[klipper_command]
 pub fn get_uptime(_context: &mut crate::State) {
     let c = Instant::now().as_micros();
-    debug!("uptime {:x}", c);
+    debug!("uptime {}", c);
     klipper_reply!(
         uptime,
         high: u32 = (c >> 32) as u32,
@@ -27,19 +27,20 @@ pub fn get_uptime(_context: &mut crate::State) {
 #[klipper_command]
 pub fn get_clock() {
     let c = (Instant::now().as_micros() & 0xFFFF_FFFF) as u32;
-    debug!("clock {:x}", c);
+    debug!("clock {}", c);
     klipper_reply!(clock, clock: u32 = c);
 }
 
 #[klipper_command]
 pub fn emergency_stop() {
+    debug!("EMERGENCY STOP");
     LED_STATE.signal(crate::LedState::Error);
 }
 
 #[klipper_command]
 pub fn get_config(context: &State) {
     let crc = context.config_crc;
-    debug!("get_config");
+    debug!("get_config {:x}", crc);
     klipper_reply!(
         config,
         is_config: bool = crc.is_some(),
@@ -57,13 +58,15 @@ pub fn config_reset(context: &mut State) {
 
 #[klipper_command]
 pub fn finalize_config(context: &mut State, crc: u32) {
-    debug!("finalize_config");
+    debug!("finalize_config {:x}", crc);
     LED_STATE.signal(Connected);
     context.config_crc = Some(crc);
 }
 
 #[klipper_command]
-pub fn allocate_oids(_count: u8) {}
+pub fn allocate_oids(_count: u8) {
+    debug!("Allc oids {}", _count);
+}
 
 #[klipper_constant]
 const MCU: &str = "k4671_openffboard";
@@ -76,5 +79,6 @@ pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdo
 
 #[klipper_command]
 pub fn reset() {
+    debug!("RESET");
     cortex_m::peripheral::SCB::sys_reset();
 }
