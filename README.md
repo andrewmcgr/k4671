@@ -10,9 +10,8 @@ Status:
 * starts up the board controller
 * detects a 4671
 * connects to Kalico via USB-Serial
-* establishes clock sync
-* SPI passthrough from Kalico allows the Kalico module to also detect the 4671
-* Kalico module chip initialisation fails
+* establishes clock sync (maybe)
+* Kalico cannot sustain connection
 
 Useful resources:
 * [Kalico/Klipper extras module for TMC 4671](https://github.com/andrewmcgr/tmc-4671) Use this for now if you actually want to use a board in a printer.
