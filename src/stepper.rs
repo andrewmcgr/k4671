@@ -326,6 +326,6 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             TMCCommand::Disable
         };
         debug!("ES set_enabled {}", cmd);
-        block_on(TMC_CMD.dyn_sender().send(cmd));
+        TMC_CMD.sender().try_send(cmd).ok();
     }
 }

@@ -1,6 +1,6 @@
 use crate::LED_STATE;
 use crate::LedState::Connecting;
-use defmt::info;
+use defmt::*;
 use embassy_futures::join::join;
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
@@ -21,7 +21,7 @@ struct Disconnected {}
 impl From<EndpointError> for Disconnected {
     fn from(val: EndpointError) -> Self {
         match val {
-            EndpointError::BufferOverflow => panic!("Buffer overflow"),
+            EndpointError::BufferOverflow => self::panic!("Buffer overflow"),
             EndpointError::Disabled => Disconnected {},
         }
     }
@@ -118,6 +118,7 @@ impl UsbAnchor {
             sender.wait_connection().await;
             loop {
                 let len = out_pipe.read(&mut rx[..]).await;
+                // trace!("Anchor Out {:x}", &rx[..len]);
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;

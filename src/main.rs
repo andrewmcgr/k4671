@@ -6,18 +6,17 @@ use cortex_m_rt::entry;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
-use embassy_futures::block_on;
 use embassy_futures::join::join;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::peripherals::TIM3;
 use embassy_stm32::time::Hertz;
+use embassy_stm32::timer::qei;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
-use embassy_stm32::{timer, timer::qei};
 use embassy_sync::{once_lock::OnceLock, signal::Signal};
-use embassy_time::{Instant, TICK_HZ, Ticker, Timer};
+use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
 use anchor::*;
@@ -25,7 +24,7 @@ use tmc4671::{self, CS, TimeIterator, config::TMC4671Config};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
-mod spi_passthrough;
+// mod spi_passthrough;
 mod stepper;
 mod stepper_commands;
 mod target_queue;
@@ -81,7 +80,7 @@ klipper_enumeration!(
     }
 );
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 128>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
 
 pub struct State {
     config_crc: Option<u32>,
@@ -107,7 +106,6 @@ impl TransportOutput for BufferTransportOutput {
     type Output = ScratchOutput;
     fn output(&self, f: impl FnOnce(&mut Self::Output)) {
         let mut scratch = ScratchOutput::new();
-        // trace!("Output from Anchor!");
         f(&mut scratch);
         let output = scratch.result();
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
@@ -158,11 +156,11 @@ fn process_moves(state: &mut State, next_time: Instant) {
         }
         _ => 0.0,
     };
-    block_on(
-        TMC_CMD
-            .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(target_position, v0, a0)),
-    );
+    // debug!("Send move {}", target_position);
+    TMC_CMD
+        .sender()
+        .try_send(tmc4671::TMCCommand::Move(target_position, v0, a0))
+        .ok();
 }
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
@@ -181,11 +179,9 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
         // Now we're done with moves, check for commands from Klipper
         while let Ok(n) = pipe.try_read(&mut rx) {
             receiver_buf.extend(&rx[..n]);
-            // trace!("Pipe read for Anchor!");
             let recv_data = receiver_buf.data();
             if !recv_data.is_empty() {
                 let mut wrap = SliceInputBuffer::new(recv_data);
-                // trace!("Data for Anchor!");
                 KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
                 let consumed = recv_data.len() - wrap.available();
                 if consumed > 0 {
@@ -206,6 +202,7 @@ async fn usb_comms(r: UsbResources) {
     // Enable VBUS detection, OpenFFBoard requires it.
     config.vbus_detection = true;
 
+    Timer::after_millis(100).await;
     info!("Hello USB!");
 
     let driver: Driver<'_, peripherals::USB_OTG_FS> =

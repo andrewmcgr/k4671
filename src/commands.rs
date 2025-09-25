@@ -1,6 +1,5 @@
 use anchor::*;
 use defmt::*;
-use tmc4671::registers::PidPositionLimitHigh;
 
 use crate::LED_STATE;
 use crate::LedState::Connected;
@@ -68,7 +67,7 @@ pub fn finalize_config(context: &mut State, crc: u32) {
 
 #[klipper_command]
 pub fn allocate_oids(_count: u8) {
-    debug!("Allc oids {}", _count);
+    debug!("Alloc oids {}", _count);
 }
 
 #[klipper_constant]

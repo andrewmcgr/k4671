@@ -8,7 +8,7 @@ tmc4671 = { path = "tmc4671" }
 # Change stm32f429zi to your chip name, if necessary.
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "stm32f407vg", "unstable-pac", "memory-x", "time-driver-tim4", "exti", "chrono"] }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-16_000_000"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy.git", features = ["defmt" ] }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy.git" }

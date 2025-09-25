@@ -1,7 +1,6 @@
 #![no_std]
 #![feature(core_float_math)]
 
-use bytemuck::cast;
 use defmt::*;
 use embedded_devices_derive::forward_register_fns;
 use embedded_interfaces::TransportError;
@@ -21,7 +20,7 @@ use paste::paste;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 2>;
+pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 200>;
 pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
 pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
 pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
@@ -54,7 +53,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(15000),
+            advance: Duration::from_hz(5000),
         }
     }
 
@@ -224,18 +223,18 @@ macro_rules! pid_impl {
     };
 }
 
-macro_rules! regdump {
-    (($nom:ident),+) => {
-        {
-            trace!("TMC Register Dump:");
-            $(
-                let reg = self.read_register::<$nom>().await?;
-                trace!("  {}: {:x}", stringify!($nom), reg.0);
-            )+
-            trace!("End of Register Dump");
-        }
-    };
-}
+// macro_rules! regdump {
+//     (($nom:ident),+) => {
+//         {
+//             trace!("TMC Register Dump:");
+//             $(
+//                 let reg = self.read_register::<$nom>().await?;
+//                 trace!("  {}: {:x}", stringify!($nom), reg.0);
+//             )+
+//             trace!("End of Register Dump");
+//         }
+//     };
+// }
 
 #[forward_register_fns]
 #[maybe_async_cfg::maybe(
@@ -800,7 +799,8 @@ where
             .await?
             .read_pid_position_error();
 
-        self.ff_error = position as f32 * self.ff_pos + velocity as f32 * self.ff_vel
+        self.ff_error = position as f32 * self.ff_pos
+            + velocity as f32 * self.ff_vel
             + torque as f32 * self.ff_torque;
 
         trace!(
@@ -993,11 +993,9 @@ where
     // Run device. Never returns.
     pub async fn run(&mut self) -> ! {
         let mut ticker = TMCTimeIterator::new();
-        let mut torque_offset: i32 = 0;
+        let mut torque_offset: i32;
 
         loop {
-            // torque_offset /= 2;
-
             let pos_actual = self.get_pid_position_actual().await.unwrap();
             let target_actual = self
                 .read_register::<PidPositionTarget>()
@@ -1029,14 +1027,16 @@ where
             );
             self.dump_pid_errors().await.ok();
 
-            // Apply feedforward from last error
-            torque_offset = - (self.ff_error.signum() * self.current_limit as f32 * 0.3) as i32;
-            trace!("TMC Feedforward Torque Offset: {}", torque_offset);
-            self.write_register(
-                PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
-            )
-            .await
-            .ok();
+            if self.enabled {
+                // Apply feedforward from last error
+                torque_offset = -(self.ff_error.signum() * self.current_limit as f32 * 0.3) as i32;
+                trace!("TMC Feedforward Torque Offset: {}", torque_offset);
+                self.write_register(
+                    PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
+                )
+                .await
+                .ok();
+            }
 
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             trace!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
@@ -1072,7 +1072,7 @@ where
                     //         self.response_tx.publish_immediate(r);
                     //     }
                     // }
-                    TMCCommand::Move(pos, vel, _accel) => {
+                    TMCCommand::Move(pos, _vel, _accel) => {
                         if self.last_pos != pos {
                             info!("TMC Command {}", cmd);
                         }
