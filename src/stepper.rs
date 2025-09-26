@@ -288,7 +288,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             add,
             direction: self.next_direction,
         };
-        // debug!("ES queue_move {}", cmd);
+        debug!("ES queue_move {}", cmd);
         if self.queue.push_back(cmd).is_err() {
             return false;
         }

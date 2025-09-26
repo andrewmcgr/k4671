@@ -11,11 +11,11 @@ use embassy_time::Instant;
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_constant]
-const CLOCK_FREQ: u32 = 1_000_000;
+const CLOCK_FREQ: u32 = 24_000_000;
 
 #[klipper_command]
 pub fn get_uptime(_context: &mut crate::State) {
-    let c = Instant::now().as_micros();
+    let c = Instant::now().as_ticks();
     let clock: u32 = (c & 0xFFFF_FFFF) as u32;
     let high: u32 = (c >> 32) as u32;
     debug!("uptime {} {} {}", c, high, clock);
@@ -28,7 +28,7 @@ pub fn get_uptime(_context: &mut crate::State) {
 
 #[klipper_command]
 pub fn get_clock() {
-    let c = Instant::now().as_micros();
+    let c = Instant::now().as_ticks();
     debug!("clock {}", c);
     klipper_reply!(clock, clock: u32 = (c & 0xFFFF_FFFF) as u32);
 }

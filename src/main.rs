@@ -110,9 +110,12 @@ impl TransportOutput for BufferTransportOutput {
         let output = scratch.result();
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
             if n < output.len() {
-                // Retry, possible a ring buffer wrap
-                let _ = USB_OUT_BUFFER.try_write(&output[n..]);
+                // // Retry, possible a ring buffer wrap
+                // debug!("USB transmit buffer retry???");
+                // let _ = USB_OUT_BUFFER.try_write(&output[n..]);
             }
+        } else {
+            debug!("USB transmit buffer full???");
         }
     }
 }
@@ -134,25 +137,25 @@ fn process_moves(state: &mut State, next_time: Instant) {
         position_2: c2,
     } = state.target_queue.get_for_control(next_time);
 
-    let c1 = c1.map(|(t, p)| (Instant::from_micros(t), p));
-    let c2 = c2.map(|(t, p)| (Instant::from_micros(t), p));
+    let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
+    let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
 
     let v0 = match c1 {
         Some((t1, p1)) => {
             (((p1 as i32) - (target_position)) as f32)
-                / ((t1 - next_time).as_micros() as f32 / (TICK_HZ as f32))
+                / ((t1 - next_time).as_ticks() as f32 / (TICK_HZ as f32))
         }
         _ => 0.0,
     };
     let v1 = match (c1, c2) {
         (Some((t1, p1)), Some((t2, p2))) => {
-            (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_micros() as f32 / (TICK_HZ as f32))
+            (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
         }
         _ => 0.0,
     };
     let a0 = match (v0, v1, c1, c2) {
         (v0, v1, Some((t1, _)), Some((t2, _))) => {
-            (v1 - v0) / ((t2 - t1).as_micros() as f32 / (TICK_HZ as f32))
+            (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
         }
         _ => 0.0,
     };
@@ -358,8 +361,8 @@ fn main() -> ! {
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    spawner.spawn(blink(r.led).expect("Spawn failure"));
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
@@ -369,6 +372,6 @@ fn main() -> ! {
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
+        spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
