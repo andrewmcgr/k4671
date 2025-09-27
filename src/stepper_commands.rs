@@ -53,8 +53,8 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
         return;
     }
     debug!("Reset step clock {}", clock);
-    context.stepper.reset_clock(Instant::from_micros(
-        Instant::now().as_micros() & (0xffff_ffff << 32) & (clock as u64),
+    context.stepper.reset_clock(Instant::from_ticks(
+        Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
     ));
 }
 

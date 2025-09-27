@@ -110,9 +110,9 @@ impl TransportOutput for BufferTransportOutput {
         let output = scratch.result();
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
             if n < output.len() {
-                // // Retry, possible a ring buffer wrap
-                // debug!("USB transmit buffer retry???");
-                // let _ = USB_OUT_BUFFER.try_write(&output[n..]);
+                // Retry, possible a ring buffer wrap
+                debug!("USB transmit buffer retry???");
+                let _ = USB_OUT_BUFFER.try_write(&output[n..]);
             }
         } else {
             debug!("USB transmit buffer full???");

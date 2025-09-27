@@ -1,6 +1,5 @@
 use crate::TMC_CMD;
 use defmt::*;
-use embassy_futures::block_on;
 use embassy_sync::blocking_mutex::{Mutex as BlockingMutex, raw::CriticalSectionRawMutex};
 use embassy_time::{Duration, Instant};
 use heapless::Deque;
@@ -44,11 +43,11 @@ impl Move {
 
     fn time_after_steps(&self, steps: u16) -> Duration {
         if steps == 0 {
-            return Duration::from_micros(0);
+            return Duration::from_ticks(0);
         }
         let base = (steps as u64) * (self.interval as u64);
         let accel = (self.add as i32) * (steps as i32 - 1) * (steps as i32) / 2;
-        Duration::from_micros(base.wrapping_add(accel as u64))
+        Duration::from_ticks(base.wrapping_add(accel as u64))
     }
 
     fn steps_before_time(&self, target: Duration) -> u16 {
@@ -91,7 +90,7 @@ impl State {
     /// Advances the state by the given move, up to maximum time
     fn advance(&mut self, cmd: &Move, up_to_time: Instant) -> AdvanceResult {
         let next_step =
-            Instant::from_micros(self.last_step.as_micros().wrapping_add(cmd.interval.into()));
+            Instant::from_ticks(self.last_step.as_ticks().wrapping_add(cmd.interval.into()));
         if next_step > up_to_time {
             return AdvanceResult::FutureMove;
         }
@@ -204,12 +203,12 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             current_move: None,
             next_direction: Direction::Forward,
             state: State {
-                last_step: Instant::from_micros(0),
+                last_step: Instant::from_ticks(0),
                 position: 0,
             },
             target_time,
             callback_state: CallbackState {
-                last_append: (Instant::from_micros(0), 0),
+                last_append: (Instant::from_ticks(0), 0),
                 incomplete: true,
             },
             reset_target: None,

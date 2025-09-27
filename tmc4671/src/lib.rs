@@ -53,7 +53,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(5000),
+            advance: Duration::from_hz(25000),
         }
     }
 
