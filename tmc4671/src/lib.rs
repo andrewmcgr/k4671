@@ -138,7 +138,7 @@ where
     brake_pin: O,
     current_scale_ma_lsb: f32,
     current_limit: u16,
-    ff_current_limit: u16,
+    ff_current_limit: i32,
     pwmfreq: f32,
     run_current: f32,
     flux_current: f32,
@@ -222,19 +222,6 @@ macro_rules! pid_impl {
         }
     };
 }
-
-// macro_rules! regdump {
-//     (($nom:ident),+) => {
-//         {
-//             trace!("TMC Register Dump:");
-//             $(
-//                 let reg = self.read_register::<$nom>().await?;
-//                 trace!("  {}: {:x}", stringify!($nom), reg.0);
-//             )+
-//             trace!("End of Register Dump");
-//         }
-//     };
-// }
 
 #[forward_register_fns]
 #[maybe_async_cfg::maybe(
@@ -576,7 +563,8 @@ where
         self.current_scale_ma_lsb = cfg.current_scale_ma_lsb;
         self.run_current = cfg.run_current;
         self.flux_current = cfg.flux_current;
-        self.ff_current_limit = self.calculate_flux_limit(cfg.ff_current);
+        self.ff_current = cfg.ff_current;
+        self.ff_current_limit = self.calculate_flux_limit(self.ff_current) as i32;
         self.ff_pos = cfg.ff_pos / cfg.n_pole_pairs as f32;
         self.ff_vel = cfg.ff_vel;
         self.ff_torque = cfg.ff_torque;
@@ -761,7 +749,7 @@ where
         Ok(())
     }
 
-    pub async fn dump_pid_errors(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+    pub async fn read_pid_errors(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
         let _ = self
             .write_register(
                 PidErrorAddr::default().with_pid_error_addr(PidError::PidErrorPidFluxError),
@@ -901,9 +889,6 @@ where
         let f = self.calculate_flux_limit(self.run_current * 0.5);
         let test2_u: u16 = (test_u as u32 * f as u32 / i as u32) as u16;
         trace!("TMC Alignment test2_U: {}", test2_u);
-        // let _ = self
-        //     .write_register(UqUdExt::default().with_ud_ext(test2_u as i16))
-        //     .await;
 
         let _ = self
             .write_register(
@@ -961,8 +946,7 @@ where
         let _ = self
             .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode))
             .await;
-        // let _ = self.enable_pin.set_low();
-        // let _ = self.write_register(UqUdExt::default().with_ud_ext(0)).await;
+
         let _ = self
             .write_register(
                 PidTorqueFluxTarget::default()
@@ -1025,11 +1009,11 @@ where
                 torque_actual,
                 flux_actual
             );
-            self.dump_pid_errors().await.ok();
+            self.read_pid_errors().await.ok();
 
             if self.enabled {
                 // Apply feedforward from last error
-                torque_offset = -(self.ff_error.signum() * self.current_limit as f32 * 0.3) as i32;
+                torque_offset = -(self.ff_current_limit * (self.ff_error.signum() as i32)) as i32;
                 trace!("TMC Feedforward Torque Offset: {}", torque_offset);
                 self.write_register(
                     PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
@@ -1045,36 +1029,17 @@ where
             while let Some(cmd) = self.command_rx.try_receive().ok() {
                 match cmd {
                     TMCCommand::Enable => {
-                        info!("TMC Command {}", cmd);
+                        debug!("TMC Command {}", cmd);
                         self.enable_motor().await.ok();
                         self.set_motion_mode(MotionMode::PositionMode).await.ok();
                     }
                     TMCCommand::Disable => {
-                        info!("TMC Command {}", cmd);
+                        debug!("TMC Command {}", cmd);
                         self.disable_motor().await.ok();
                     }
-                    // TMCCommand::SpiSend(data) => {
-                    //     trace!("TMC Command {:x}", cmd);
-                    //     let _ = self.interface.write(&data).await;
-                    // }
-                    // TMCCommand::SpiTransfer(data) => {
-                    //     trace!("TMC Command {:x}", cmd);
-                    //     let mut resp: [u8; 5] = [0; 5];
-                    //     if self
-                    //         .interface
-                    //         .interface
-                    //         .transfer(&mut resp, &data)
-                    //         .await
-                    //         .is_ok()
-                    //     {
-                    //         let r = TMCCommandResponse::SpiResponse(resp);
-                    //         trace!("TMC Responds {:x}", r);
-                    //         self.response_tx.publish_immediate(r);
-                    //     }
-                    // }
                     TMCCommand::Move(pos, _vel, _accel) => {
                         if self.last_pos != pos {
-                            info!("TMC Command {} {}", cmd, self.enabled);
+                            debug!("TMC Command {} {}", cmd, self.enabled);
                         }
                         self.last_pos = pos;
                         if self.enabled {

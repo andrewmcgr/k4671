@@ -9,7 +9,7 @@ pub struct TMC4671Config {
     pub run_current: f32,
     #[builder(default = 0.0)]
     pub flux_current: f32,
-    #[builder(default = 1.0)]
+    #[builder(default = 0.3)]
     pub ff_current: f32,
     #[builder(default = 1.0)]
     pub ff_pos: f32,

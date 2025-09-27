@@ -131,16 +131,15 @@ pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 fn process_moves(state: &mut State, next_time: Instant) {
-    static mut last_pos: i32 = 0;
-    state.stepper.advance(&mut state.target_queue);
+    static mut LAST_POS: i32 = 0;
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
         position_2: c2,
     } = state.target_queue.get_for_control(next_time);
-    if target_position != unsafe { last_pos } {
+    if target_position != unsafe { LAST_POS } {
         debug!("Target pos {} {}", target_position, next_time.as_ticks());
-        unsafe { last_pos = target_position };
+        unsafe { LAST_POS = target_position };
     }
 
     let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
@@ -170,6 +169,7 @@ fn process_moves(state: &mut State, next_time: Instant) {
         .sender()
         .try_send(tmc4671::TMCCommand::Move(target_position, v0, a0))
         .ok();
+    state.stepper.advance(&mut state.target_queue);
 }
 
 async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
