@@ -1074,7 +1074,7 @@ where
                     // }
                     TMCCommand::Move(pos, _vel, _accel) => {
                         if self.last_pos != pos {
-                            info!("TMC Command {}", cmd);
+                            info!("TMC Command {} {}", cmd, self.enabled);
                         }
                         self.last_pos = pos;
                         if self.enabled {

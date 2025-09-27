@@ -118,7 +118,7 @@ impl UsbAnchor {
             sender.wait_connection().await;
             loop {
                 let len = out_pipe.read(&mut rx[..]).await;
-                trace!("Anchor Out {:x}", &rx[..len]);
+                // trace!("Anchor Out {:x}", &rx[..len]);
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
@@ -130,7 +130,7 @@ impl UsbAnchor {
             receiver.wait_connection().await;
             loop {
                 let len = receiver.read_packet(&mut reciever_buf).await?;
-                trace!("Anchor In {:x}", &reciever_buf[..len]);
+                // trace!("Anchor In {:x}", &reciever_buf[..len]);
                 in_pipe.write_all(&mut reciever_buf[..len]).await;
             }
         };

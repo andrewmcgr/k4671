@@ -1,6 +1,7 @@
 use crate::stepper::Callbacks;
-use embassy_time::Instant;
 use core::cell::RefCell;
+use defmt::debug;
+use embassy_time::Instant;
 use heapless::Deque;
 
 pub struct TargetQueueInner<const N: usize> {
@@ -88,6 +89,9 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
                     break;
                 }
                 q.pop_front();
+            }
+            if q.len() > 0 {
+                debug!("Queue time {} len {}", time.as_ticks(), q.len());
             }
             if q.is_empty() {
                 return ControlOutput::single(last);

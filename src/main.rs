@@ -131,11 +131,17 @@ pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 fn process_moves(state: &mut State, next_time: Instant) {
+    static mut last_pos: i32 = 0;
+    state.stepper.advance(&mut state.target_queue);
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
         position_2: c2,
     } = state.target_queue.get_for_control(next_time);
+    if target_position != unsafe { last_pos } {
+        debug!("Target pos {} {}", target_position, next_time.as_ticks());
+        unsafe { last_pos = target_position };
+    }
 
     let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
     let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
@@ -366,9 +372,6 @@ fn main() -> ! {
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
-    We run Klipper protocol and USB here, so the TMC can preempt it.
-    Note that Anchor is sync code, so preemption is required if it is to be able
-    to message async code and block to receive responses.
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {

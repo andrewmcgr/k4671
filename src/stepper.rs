@@ -234,7 +234,6 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 .emit(self.target_time.next(), reset_target, callbacks);
         }
         while self.callback_state.can_append(callbacks) {
-            // debug!("ES advance");
             let cmd = match self.current_move.as_mut() {
                 None => match self.queue.pop_front() {
                     None => return, // Nothing to do
@@ -245,6 +244,8 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 },
                 Some(m) => m,
             };
+
+            debug!("ES advance {:?}", cmd);
 
             // Get next PID tick
             let mut next_time = self.target_time.next();
@@ -277,7 +278,6 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 self.current_move = None
             }
         }
-        // debug!("ES advance END");
     }
 
     pub fn queue_move(&mut self, interval: u32, count: u16, add: i16) -> bool {
@@ -289,6 +289,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         };
         debug!("ES queue_move {}", cmd);
         if self.queue.push_back(cmd).is_err() {
+            debug!("ES queue full");
             return false;
         }
         true
