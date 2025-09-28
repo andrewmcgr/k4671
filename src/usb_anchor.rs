@@ -1,7 +1,8 @@
 use crate::LED_STATE;
-use crate::LedState::Connecting;
+use crate::LedState::{Connecting, Error};
 use defmt::*;
 use embassy_futures::join::join;
+use embassy_futures::select::select;
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
@@ -9,6 +10,8 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
+use embassy_time::Timer;
+
 
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -114,7 +117,6 @@ impl UsbAnchor {
     {
         let mut out_fut = async || -> Result<(), Disconnected> {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
-            LED_STATE.signal(Connecting);
             sender.wait_connection().await;
             loop {
                 let len = out_pipe.read(&mut rx[..]).await;
@@ -136,7 +138,10 @@ impl UsbAnchor {
         };
 
         loop {
-            let _ = join(out_fut(), reciever_fut()).await;
+            LED_STATE.signal(Connecting);
+            let _ = select(out_fut(), reciever_fut()).await;
+            LED_STATE.signal(Error);
+            Timer::after_millis(900).await;
         }
     }
 }

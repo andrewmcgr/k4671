@@ -368,13 +368,13 @@ fn main() -> ! {
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
+        spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
         spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
