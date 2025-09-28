@@ -40,8 +40,15 @@ maybe-async-cfg = "0.2"
 [build-dependencies]
 anchor_codegen = { git = "https://github.com/Annex-Engineering/anchor.git" }
 
+# cargo build/run --release
 [profile.release]
+codegen-units = 1
 debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = "s"
+overflow-checks = false
 
 [[bin]]
 name = "k4671"
