@@ -64,6 +64,7 @@ unsafe fn maybe_enter_dfu() {
     }
 }
 
+// Safe because it does not return. See maybe_enter_dfu for what happens.
 pub fn enter_dfu_mode() -> ! {
     unsafe {
         #[allow(static_mut_refs)]
