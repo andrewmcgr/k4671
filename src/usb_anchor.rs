@@ -2,16 +2,15 @@ use crate::LED_STATE;
 use crate::LedState::{Connecting, Error};
 use defmt::*;
 use embassy_futures::join::join;
-use embassy_futures::select::select;
+use embassy_futures::select::{select, Either}; 
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
+use embassy_time::Timer;
+use embassy_usb::class::cdc_acm::{CdcAcmClass, ControlChanged, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use embassy_time::Timer;
-
 
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -95,13 +94,14 @@ impl UsbAnchor {
 
         // Create classes on the builder.
         let class = CdcAcmClass::new(&mut builder, &mut state.state, MAX_PACKET_SIZE as u16);
-        let (mut sender, mut receiver) = class.split();
+        let (mut sender, mut receiver, mut control) = class.split_with_control();
 
         // Build the builder.
         let mut device = builder.build();
         loop {
             let run_fut = device.run();
-            let class_fut = self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver);
+            let class_fut =
+                self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver, &mut control);
             join(run_fut, class_fut).await;
         }
     }
@@ -112,6 +112,7 @@ impl UsbAnchor {
         out_pipe: &'d AnchorPipe,
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,
+        control: &mut ControlChanged<'d>,
     ) where
         D: Driver<'d>,
     {
@@ -131,7 +132,24 @@ impl UsbAnchor {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             receiver.wait_connection().await;
             loop {
-                let len = receiver.read_packet(&mut reciever_buf).await?;
+                let res = select(
+                    receiver.read_packet(&mut reciever_buf),
+                    control.control_changed(),
+                )
+                .await;
+                let len = match res {
+                    Either::First(Err(e)) => return Err(e.into()),
+                    Either::First(Ok(len)) => len,
+                    Either::Second(_) => {
+                        if receiver.line_coding().data_rate() == 1200 {
+                            // Special case: 1200 baud on a CDC ACM port is the "signal to
+                            // reboot to bootloader" in the Arduino world.
+                            crate::enter_dfu_mode();
+                            // Unreachable, as enter_dfu_mode does not return.
+                        }
+                        continue;
+                    }
+                };
                 // trace!("Anchor In {:x}", &reciever_buf[..len]);
                 in_pipe.write_all(&mut reciever_buf[..len]).await;
             }
