@@ -129,6 +129,14 @@ pub struct State {
     config_crc: Option<u32>,
     stepper: EmulatedStepper,
     target_queue: crate::stepper::TargetQueue,
+    trsync_oid: Option<u8>,
+    trsync_report_clock: u32,
+    trsync_report_ticks: u32,
+    trsync_expire_reason: u8,
+    trsync_trigger_reason: u8,
+    trsync_timeout_clock: u32,
+    trsync_can_trigger: bool,
+    trsync_report: bool,
 }
 
 impl State {
@@ -137,7 +145,29 @@ impl State {
             config_crc: None,
             stepper: EmulatedStepper::new(tmc4671::TMCTimeIterator::new()),
             target_queue: crate::stepper::TargetQueue::new(),
+            trsync_oid: None,
+            trsync_report_clock: 0,
+            trsync_report_ticks: 0,
+            trsync_expire_reason: 0,
+            trsync_trigger_reason: 0,
+            trsync_timeout_clock: 0,
+            trsync_can_trigger: false,
+            trsync_report: false,
         }
+    }
+}
+
+pub trait TrSync {
+    fn do_trigger(&mut self, reason: u8);
+}
+
+impl TrSync for State {
+    fn do_trigger(&mut self, reason: u8) {
+        if !self.trsync_can_trigger {
+            return;
+        }
+        self.trsync_can_trigger = false;
+        self.trsync_trigger_reason = reason;
     }
 }
 
@@ -164,11 +194,6 @@ impl TransportOutput for BufferTransportOutput {
 }
 
 pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput;
-
-klipper_config_generate!(
-  transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
-  context = &'ctx mut crate::State,
-);
 
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
@@ -239,6 +264,23 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
                 if consumed > 0 {
                     receiver_buf.pop(consumed);
                 }
+            }
+        }
+        let now_ticks = Instant::now().as_ticks() as u32;
+        let next_ticks = ticks.as_ticks() as u32;
+        // trsync processing
+        if state.trsync_can_trigger && (state.trsync_timeout_clock != 0) {
+            if next_ticks.wrapping_sub(state.trsync_timeout_clock) < 0x8000_0000 {
+                // Timer has expired
+                state.do_trigger(state.trsync_expire_reason);
+                info!("TrSync timeout");
+            }
+        } 
+        if state.trsync_report && (state.trsync_report_clock != 0) {
+            if next_ticks.wrapping_sub(state.trsync_report_clock) < 0x8000_0000 {
+                // Timer has expired
+                state.trsync_report = false;
+                state.trsync_report_ticks = next_ticks;
             }
         }
         Timer::at(ticks).await
@@ -421,3 +463,8 @@ fn main() -> ! {
         spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
+
+klipper_config_generate!(
+  transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
+  context = &'ctx mut crate::State,
+);

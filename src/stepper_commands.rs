@@ -1,4 +1,4 @@
-use crate::LED_STATE;
+use crate::{TrSync, LED_STATE};
 use crate::LedState::{Connected, Enabled};
 use crate::State;
 use crate::stepper::Direction;
@@ -16,7 +16,10 @@ pub fn config_stepper(
     _invert_step: u8,
     _step_pulse_ticks: u32,
 ) {
-    debug!("Config Stepper {} {} {} {} {}", oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks);
+    debug!(
+        "Config Stepper {} {} {} {} {}",
+        oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks
+    );
     context.stepper.stepper_oid = Some(oid);
 }
 
@@ -153,32 +156,57 @@ klipper_enumeration! {
 }
 
 #[klipper_command]
-pub fn config_trsync(_context: &mut State, _oid: u8) {
-    // TODO:
+pub fn config_trsync(context: &mut State, _oid: u8) {
+    context.trsync_oid = Some(_oid);
 }
 
 #[klipper_command]
 pub fn trsync_start(
-    _context: &mut State,
-    _oid: u8,
-    _report_clock: u32,
-    _report_ticks: u32,
-    _expire_reason: u8,
+    context: &mut State,
+    oid: u8,
+    report_clock: u32,
+    report_ticks: u32,
+    expire_reason: u8,
 ) {
-    // TODO:
+    if context.trsync_oid != Some(oid) {
+        warn!("No OID match");
+        return;
+    }
+    context.trsync_report_clock = report_clock;
+    context.trsync_report_ticks = report_ticks;
+    context.trsync_expire_reason = expire_reason;
 }
 
 #[klipper_command]
-pub fn trsync_set_timeout(_context: &mut State, _oid: u8, _clock: u32) {
-    // TODO:
+pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
+    if context.trsync_oid != Some(oid) {
+        warn!("No OID match");
+        return;
+    }
+    context.trsync_timeout_clock = clock;
 }
 
 #[klipper_command]
-pub fn trsync_trigger(_context: &mut State, _oid: u8, _reason: u8) {
-    // TODO:
+pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
+    if context.trsync_oid != Some(oid) {
+        warn!("No OID match");
+        return;
+    }
+    context.trsync_expire_reason = reason;
+    context.do_trigger(reason);
+    // klipper_reply!(
+    //     trsync_state,
+    //     oid: u8 = oid,
+    //     can_trigger: u8 = if context.trsync_can_trigger { 1 } else { 0 },
+    //     trigger_reason: u8 = reason,
+    //     clock: u32 = Instant::now().as_ticks() as u32
+    // );
 }
 
 #[klipper_command]
-pub fn trsync_state(_context: &mut State, _oid: u8, _can_trigger: u8, _trigger_reason: u8, _clock: u32) {
-    // TODO:
+pub fn trsync_state(context: &mut State, oid: u8, can_trigger: u8, trigger_reason: u8, clock: u32) {
+    if context.trsync_oid != Some(oid) {
+        warn!("No OID match");
+        return;
+    }
 }

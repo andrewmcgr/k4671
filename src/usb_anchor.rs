@@ -2,7 +2,7 @@ use crate::LED_STATE;
 use crate::LedState::{Connecting, Error};
 use defmt::*;
 use embassy_futures::join::join;
-use embassy_futures::select::{select, Either}; 
+use embassy_futures::select::{Either, select};
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
@@ -120,8 +120,12 @@ impl UsbAnchor {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             sender.wait_connection().await;
             loop {
-                let len = out_pipe.read(&mut rx[..]).await;
+                let res = select(out_pipe.read(&mut rx[..]), control.control_changed()).await;
                 // trace!("Anchor Out {:x}", &rx[..len]);
+                let len = match res {
+                    Either::First(len) => len,
+                    Either::Second(_) => continue,
+                };
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
