@@ -120,12 +120,8 @@ impl UsbAnchor {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             sender.wait_connection().await;
             loop {
-                let res = select(out_pipe.read(&mut rx[..]), control.control_changed()).await;
+                let len = out_pipe.read(&mut rx[..]).await;
                 // trace!("Anchor Out {:x}", &rx[..len]);
-                let len = match res {
-                    Either::First(len) => len,
-                    Either::Second(_) => continue,
-                };
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
@@ -148,8 +144,7 @@ impl UsbAnchor {
                         if receiver.line_coding().data_rate() == 1200 {
                             // Special case: 1200 baud on a CDC ACM port is the "signal to
                             // reboot to bootloader" in the Arduino world.
-                            use dfu::enter_dfu_mode;
-                            enter_dfu_mode();
+                            dfu::enter_dfu_mode();
                             // Unreachable, as enter_dfu_mode does not return.
                         }
                         continue;

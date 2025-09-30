@@ -32,8 +32,8 @@ mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
 
-const DFU_BOOT_KEY: u32 = 0xDEADBEEF;
-const BOOTLOADER_ST_ADDR: u32 = 0x1fff_0000;
+
+
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -367,8 +367,7 @@ async fn encoder_mon() {
 
 #[entry]
 fn main() -> ! {
-    unsafe { dfu::maybe_enter_dfu() };
-
+    dfu::maybe_enter_dfu();
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -421,6 +420,7 @@ fn main() -> ! {
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
+    spawner.spawn(blink(r.led).expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
@@ -428,6 +428,5 @@ fn main() -> ! {
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
-        spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
