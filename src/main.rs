@@ -1,11 +1,9 @@
 #![no_std]
 #![no_main]
 
-use core::mem::MaybeUninit;
-use core::{arch::asm, ptr};
+use cortex_m_rt::entry;
 
 use assign_resources::assign_resources;
-use cortex_m_rt::{entry, pre_init};
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
@@ -41,43 +39,6 @@ klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
   context = &'ctx mut crate::State,
 );
-
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".uninit.BOOTMAGIC")]
-static mut BOOTMAGIC: MaybeUninit<u32> = MaybeUninit::uninit();
-
-#[pre_init]
-unsafe fn maybe_enter_dfu() {
-    // Safety: This uses memory initialised before the last reset.
-    // It either does nothing, or jumps to the bootloader and never returns, or resets the chip.
-    unsafe {
-        #[allow(static_mut_refs)]
-        let bm = BOOTMAGIC.assume_init_mut();
-        if *bm == !DFU_BOOT_KEY {
-            *bm = 0;
-            asm!("nop");
-            cortex_m::peripheral::SCB::sys_reset();
-        }
-        if *bm == DFU_BOOT_KEY {
-            *bm = !DFU_BOOT_KEY;
-            info!("Entering DFU mode");
-            let initial_sp = ptr::read(BOOTLOADER_ST_ADDR as *const u32);
-            let start_addr = ptr::read((BOOTLOADER_ST_ADDR + 4) as *const u32);
-            asm!("mov sp, {0}\nbx {1}", in(reg) initial_sp, in(reg) start_addr);
-            core::hint::unreachable_unchecked()
-        }
-    }
-}
-
-// Safe because it does not return. See maybe_enter_dfu for what happens.
-pub fn enter_dfu_mode() -> ! {
-    unsafe {
-        #[allow(static_mut_refs)]
-        let bm = BOOTMAGIC.assume_init_mut();
-        *bm = DFU_BOOT_KEY;
-        cortex_m::peripheral::SCB::sys_reset();
-    }
-}
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -406,6 +367,8 @@ async fn encoder_mon() {
 
 #[entry]
 fn main() -> ! {
+    unsafe { dfu::maybe_enter_dfu() };
+
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;

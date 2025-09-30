@@ -148,7 +148,8 @@ impl UsbAnchor {
                         if receiver.line_coding().data_rate() == 1200 {
                             // Special case: 1200 baud on a CDC ACM port is the "signal to
                             // reboot to bootloader" in the Arduino world.
-                            crate::enter_dfu_mode();
+                            use dfu::enter_dfu_mode;
+                            enter_dfu_mode();
                             // Unreachable, as enter_dfu_mode does not return.
                         }
                         continue;
