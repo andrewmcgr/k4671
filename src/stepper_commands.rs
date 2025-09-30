@@ -194,19 +194,19 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
     }
     context.trsync_expire_reason = reason;
     context.do_trigger(reason);
-    // klipper_reply!(
-    //     trsync_state,
-    //     oid: u8 = oid,
-    //     can_trigger: u8 = if context.trsync_can_trigger { 1 } else { 0 },
-    //     trigger_reason: u8 = reason,
-    //     clock: u32 = Instant::now().as_ticks() as u32
-    // );
+    klipper_reply!(
+        trsync_state,
+        oid: u8 = oid,
+        can_trigger: u8 = if context.trsync_can_trigger { 1 } else { 0 },
+        trigger_reason: u8 = reason,
+        clock: u32 = Instant::now().as_ticks() as u32
+    );
 }
 
-#[klipper_command]
-pub fn trsync_state(context: &mut State, oid: u8, can_trigger: u8, trigger_reason: u8, clock: u32) {
-    if context.trsync_oid != Some(oid) {
-        warn!("No OID match");
-        return;
-    }
-}
+// #[klipper_command]
+// pub fn trsync_state(context: &mut State, oid: u8, can_trigger: u8, trigger_reason: u8, clock: u32) {
+//     if context.trsync_oid != Some(oid) {
+//         warn!("No OID match");
+//         return;
+//     }
+// }
