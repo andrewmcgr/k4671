@@ -37,6 +37,11 @@ use crate::leds::blink;
 const DFU_BOOT_KEY: u32 = 0xDEADBEEF;
 const BOOTLOADER_ST_ADDR: u32 = 0x1fff_0000;
 
+klipper_config_generate!(
+  transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
+  context = &'ctx mut crate::State,
+);
+
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".uninit.BOOTMAGIC")]
 static mut BOOTMAGIC: MaybeUninit<u32> = MaybeUninit::uninit();
@@ -463,8 +468,3 @@ fn main() -> ! {
         spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
-
-klipper_config_generate!(
-  transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
-  context = &'ctx mut crate::State,
-);

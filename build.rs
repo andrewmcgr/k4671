@@ -1,9 +1,12 @@
+use anchor_codegen::ConfigBuilder;
+
 fn main() {
-    anchor_codegen::ConfigBuilder::new()
+    ConfigBuilder::new()
         .entry("src/main.rs")
-        .set_version("k4671 0.1")
+        .set_version("0.1")
         .set_build_versions("")
         .build();
+    println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
