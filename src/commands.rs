@@ -11,7 +11,7 @@ use embassy_time::Instant;
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_constant]
-const CLOCK_FREQ: u32 = 84_000_000;
+const CLOCK_FREQ: u32 = 24_000_000;
 
 #[klipper_command]
 pub fn get_uptime(_context: &mut crate::State) {

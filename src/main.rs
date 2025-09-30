@@ -338,32 +338,32 @@ unsafe fn UART5() {
     EXECUTOR_MED.on_interrupt()
 }
 
-type OnceLockQei = OnceLock<qei::Qei<'static, TIM3>>;
-static ENCODER: OnceLockQei = OnceLockQei::new();
+// type OnceLockQei = OnceLock<qei::Qei<'static, TIM3>>;
+// static ENCODER: OnceLockQei = OnceLockQei::new();
 
-#[embassy_executor::task]
-async fn encoder_mon() {
-    TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
-    let mut old_pos = 0;
-    loop {
-        let pos = ENCODER.get().await.count();
-        let pos = if pos > 32768 {
-            (pos as i32) - 65536
-        } else {
-            pos as i32
-        };
-        let pos = pos * 256;
-        let dpos = (pos - old_pos) as f32;
-        old_pos = pos;
+// #[embassy_executor::task]
+// async fn encoder_mon() {
+//     TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
+//     let mut old_pos = 0;
+//     loop {
+//         let pos = ENCODER.get().await.count();
+//         let pos = if pos > 32768 {
+//             (pos as i32) - 65536
+//         } else {
+//             pos as i32
+//         };
+//         let pos = pos * 256;
+//         let dpos = (pos - old_pos) as f32;
+//         old_pos = pos;
 
-        // info!("Encoder pos {}", pos);
-        TMC_CMD
-            .dyn_sender()
-            .send(tmc4671::TMCCommand::Move(pos, dpos / 0.03, 0.0))
-            .await;
-        Timer::after_millis(10).await;
-    }
-}
+//         // info!("Encoder pos {}", pos);
+//         TMC_CMD
+//             .dyn_sender()
+//             .send(tmc4671::TMCCommand::Move(pos, dpos / 0.03, 0.0))
+//             .await;
+//         Timer::after_millis(10).await;
+//     }
+// }
 
 #[entry]
 fn main() -> ! {
@@ -395,11 +395,11 @@ fn main() -> ! {
 
     info!("Hello World!");
 
-    let _ = ENCODER.init(qei::Qei::new(
-        r.encoder.timer,
-        qei::QeiPin::new(r.encoder.enc_a),
-        qei::QeiPin::new(r.encoder.enc_b),
-    ));
+    // let _ = ENCODER.init(qei::Qei::new(
+    //     r.encoder.timer,
+    //     qei::QeiPin::new(r.encoder.enc_a),
+    //     qei::QeiPin::new(r.encoder.enc_b),
+    // ));
 
     /*
     STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
