@@ -11,13 +11,12 @@ use embassy_futures::join::join;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
-use embassy_stm32::peripherals::TIM3;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::qei;
+// use embassy_stm32::timer::qei;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
-use embassy_sync::{once_lock::OnceLock, signal::Signal};
-use embassy_time::{Instant, TICK_HZ, Timer};
+use embassy_sync::signal::Signal;
+use embassy_time::{Instant, TICK_HZ, Timer, Duration};
 use static_cell::StaticCell;
 
 use anchor::*;
@@ -31,9 +30,6 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
-
-
-
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -91,18 +87,82 @@ klipper_enumeration!(
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
 
+pub fn clock32_to_64(clock32: u32) -> Instant {
+    let now_ticks = Instant::now().as_ticks();
+    let diff = (now_ticks as u32).wrapping_sub(clock32) as u64;
+    Instant::from_ticks(if diff & 0x8000_0000 != 0 {
+        now_ticks + 0x1_0000_0000 - diff
+    } else {
+        now_ticks - diff
+    })
+}
+
+pub struct TrSync {
+    oid: Option<u8>,
+    report_clock: Option<Instant>,
+    report_ticks: Option<u32>,
+    expire_reason: u8,
+    trigger_reason: u8,
+    timeout_clock: Option<Instant>,
+    can_trigger: bool,
+}
+
+impl TrSync {
+    pub const fn new() -> Self {
+        Self {
+            oid: None,
+            report_clock: None,
+            report_ticks: None,
+            expire_reason: 0,
+            trigger_reason: 0,
+            timeout_clock: None,
+            can_trigger: false,
+        }
+    }
+    
+    fn process_trsync(self: &mut TrSync) {
+        // trsync processing
+        if let Some(oid) = self.oid {
+            let now = Instant::now();
+            if let Some(report_clock) = self.report_clock {
+                if now > report_clock {
+                    // Timer has expired
+                    if let Some(ticks) = self.report_ticks {
+                        self.report_clock =
+                            Some(report_clock + Duration::from_ticks(ticks as u64));
+                    } else {
+                        self.report_clock = None;
+                    }
+                    stepper_commands::trsync_report(
+                        oid,
+                        if self.can_trigger { 1 } else { 0 },
+                        self.trigger_reason,
+                        now.as_ticks() as u32,
+                    );
+                }
+            }
+            if self.can_trigger && self.timeout_clock.is_some() {
+                if now > self.timeout_clock.unwrap() {
+                    // Timer has expired
+                    self.timeout_clock = None;
+                    self.can_trigger = false;
+                    stepper_commands::trsync_report(
+                        oid,
+                        0,
+                        self.expire_reason,
+                        now.as_ticks() as u32,
+                    );
+                }
+            }
+        }
+    }
+}
+
 pub struct State {
     config_crc: Option<u32>,
     stepper: EmulatedStepper,
     target_queue: crate::stepper::TargetQueue,
-    trsync_oid: Option<u8>,
-    trsync_report_clock: u32,
-    trsync_report_ticks: u32,
-    trsync_expire_reason: u8,
-    trsync_trigger_reason: u8,
-    trsync_timeout_clock: u32,
-    trsync_can_trigger: bool,
-    trsync_report: bool,
+    trsync: TrSync,
 }
 
 impl State {
@@ -111,29 +171,8 @@ impl State {
             config_crc: None,
             stepper: EmulatedStepper::new(tmc4671::TMCTimeIterator::new()),
             target_queue: crate::stepper::TargetQueue::new(),
-            trsync_oid: None,
-            trsync_report_clock: 0,
-            trsync_report_ticks: 0,
-            trsync_expire_reason: 0,
-            trsync_trigger_reason: 0,
-            trsync_timeout_clock: 0,
-            trsync_can_trigger: false,
-            trsync_report: false,
+            trsync: TrSync::new(),
         }
-    }
-}
-
-pub trait TrSync {
-    fn do_trigger(&mut self, reason: u8);
-}
-
-impl TrSync for State {
-    fn do_trigger(&mut self, reason: u8) {
-        if !self.trsync_can_trigger {
-            return;
-        }
-        self.trsync_can_trigger = false;
-        self.trsync_trigger_reason = reason;
     }
 }
 
@@ -219,7 +258,8 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
         let ticks = ticker.next();
         // Move processing
         process_moves(&mut state, ticks);
-        // Now we're done with moves, check for commands from Klipper
+
+        // Check for commands from Klipper
         while let Ok(n) = pipe.try_read(&mut rx) {
             receiver_buf.extend(&rx[..n]);
             let recv_data = receiver_buf.data();
@@ -232,23 +272,10 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
                 }
             }
         }
-        let now_ticks = Instant::now().as_ticks() as u32;
-        let next_ticks = ticks.as_ticks() as u32;
-        // trsync processing
-        if state.trsync_can_trigger && (state.trsync_timeout_clock != 0) {
-            if next_ticks.wrapping_sub(state.trsync_timeout_clock) < 0x8000_0000 {
-                // Timer has expired
-                state.do_trigger(state.trsync_expire_reason);
-                info!("TrSync timeout");
-            }
-        } 
-        if state.trsync_report && (state.trsync_report_clock != 0) {
-            if next_ticks.wrapping_sub(state.trsync_report_clock) < 0x8000_0000 {
-                // Timer has expired
-                state.trsync_report = false;
-                state.trsync_report_ticks = next_ticks;
-            }
-        }
+
+        // TrSync processing
+        state.trsync.process_trsync();
+
         Timer::at(ticks).await
     }
 }
