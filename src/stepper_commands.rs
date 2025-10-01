@@ -169,40 +169,43 @@ pub fn trsync_start(
     report_ticks: u32,
     expire_reason: u8,
 ) {
-    if context.trsync.oid != Some(oid) {
+    let trsync = &mut context.trsync;
+    if trsync.oid != Some(oid) {
         warn!("No OID match");
         return;
     }
-    context.trsync.report_clock = if report_clock != 0 {
+    trsync.report_clock = if report_clock != 0 {
         Some(clock32_to_64(report_clock))
     } else {
         None
     };
-    context.trsync.report_ticks = Some(report_ticks);
-    context.trsync.trigger_reason = 0;
-    context.trsync.can_trigger = true;
-    context.trsync.expire_reason = expire_reason;
+    trsync.report_ticks = Some(report_ticks);
+    trsync.trigger_reason = 0;
+    trsync.can_trigger = true;
+    trsync.expire_reason = expire_reason;
 }
 
 #[klipper_command]
 pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
-    if context.trsync.oid != Some(oid) {
+    let trsync = &mut context.trsync;
+    if trsync.oid != Some(oid) {
         warn!("No OID match");
         return;
     }
-    context.trsync.timeout_clock = Some(clock32_to_64(clock));
+    trsync.timeout_clock = Some(clock32_to_64(clock));
 }
 
 #[klipper_command]
 pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
-    if context.trsync.oid != Some(oid) {
+    let trsync = &mut context.trsync;
+    if trsync.oid != Some(oid) {
         warn!("No OID match");
         return;
     }
-    context.trsync.trigger_reason = reason;
-    context.trsync.can_trigger = false;
-    context.trsync.timeout_clock = None;
-    context.trsync.report_clock = None;
+    trsync.trigger_reason = reason;
+    trsync.can_trigger = false;
+    trsync.timeout_clock = None;
+    trsync.report_clock = None;
     trsync_report(oid, 0, reason, 0);
 }
 
