@@ -3,6 +3,7 @@ use crate::LedState::{Connected, Enabled};
 use crate::State;
 use crate::clock32_to_64;
 use crate::stepper::Direction;
+use core::ops::{Deref, DerefMut};
 use embassy_time::Instant;
 
 use anchor::*;
@@ -21,11 +22,12 @@ pub fn config_stepper(
         "Config Stepper {} {} {} {} {}",
         oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks
     );
+
     for i in 0..context.steppers.len() {
-        if context.steppers[i].stepper_oid.is_some() {
+        if context.steppers[i].lock(|s| s.borrow().deref().stepper_oid.is_some()) {
             continue;
         } else {
-            context.steppers_by_oid.insert(oid, i);
+            context.steppers_by_oid.insert(oid, i).ok();
             break;
         }
     }
@@ -35,7 +37,7 @@ pub fn config_stepper(
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("queue_step {} {} {}", interval, count, add);
-        context.steppers[*i].queue_move(interval, count, add);
+        context.steppers[*i].lock(|s| s.borrow_mut().deref_mut().queue_move(interval, count, add));
     } else {
         warn!("No OID match");
     }
@@ -45,12 +47,14 @@ pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: 
 pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Set next step dir {} {}", oid, dir);
-        context.steppers[*i].set_next_dir(if dir == 1 {
-            debug!("Forward");
-            Direction::Forward
-        } else {
-            debug!("Backward");
-            Direction::Backward
+        context.steppers[*i].lock(|s| {
+            s.borrow_mut().deref_mut().set_next_dir(if dir == 1 {
+                debug!("Forward");
+                Direction::Forward
+            } else {
+                debug!("Backward");
+                Direction::Backward
+            })
         });
     } else {
         warn!("No OID match");
@@ -62,9 +66,11 @@ pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Reset step clock {} {}", oid, clock);
-        context.steppers[*i].reset_clock(Instant::from_ticks(
-            Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
-        ));
+        context.steppers[*i].lock(|s| {
+            s.borrow_mut().deref_mut().reset_clock(Instant::from_ticks(
+                Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
+            ));
+        });
     } else {
         warn!("No OID match");
     }
@@ -74,7 +80,7 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
 pub fn stepper_get_position(context: &mut State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get position {}", oid);
-        let pos = context.steppers[*i].get_position();
+        let pos = context.steppers[*i].lock(|s| s.borrow().deref().get_position());
         debug!("Stepper position responds {}", pos);
         klipper_reply!(stepper_position, oid: u8, pos: i32)
     } else {
@@ -87,7 +93,7 @@ pub fn stepper_get_position(context: &mut State, oid: u8) {
 pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get commanded position {}", oid);
-        let pos = context.steppers[*i].get_commanded_position();
+        let pos = context.steppers[*i].lock(|s| s.borrow().deref().get_commanded_position());
         debug!("Stepper commanded position responds {}", pos);
         klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
     } else {
@@ -98,7 +104,7 @@ pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
 
 #[klipper_command]
 pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, _trsync_oid: u8) {
-    if let Some(i) = context.steppers_by_oid.get(&oid) {
+    if let Some(_i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper stop on trigger {}", oid);
         // context.steppers[*i].stop_on_trigger();
     } else {
@@ -121,7 +127,9 @@ pub fn config_digital_out(
     if pin != u8::from(Pins::Enable) {
         return;
     }
-    context.steppers[0].stepper_enable_oid = Some(oid);
+    context.steppers[0].lock(|s| {
+        s.borrow_mut().deref_mut().stepper_enable_oid = Some(oid);
+    });
     context.steppers_by_enable_oid.insert(oid, 0).ok();
 }
 
@@ -130,13 +138,17 @@ pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u3
     if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
         debug!("Queue digital out {} {} {}", oid, _clock, on_ticks);
         let enable = on_ticks != 0;
-        if !enable {
-            context.steppers[*i].reset_target(0);
+        context.steppers[*i].lock(|s| {
+            let mut sis = s.borrow_mut();
+            let sis = sis.deref_mut();
+            sis.reset_target(0);
+            sis.set_enabled(enable);
+        });
+        if enable {
             LED_STATE.signal(Connected);
         } else {
             LED_STATE.signal(Enabled);
         }
-        context.steppers[*i].set_enabled(enable);
     }
 }
 
@@ -146,12 +158,16 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
         debug!("Update digital out {} {}", oid, value);
         let enable = value != 0;
         if !enable {
-            context.steppers[*i].reset_target(0);
+            context.steppers[*i].lock(|s| {
+                let mut sis = s.borrow_mut();
+                let sis = sis.deref_mut();
+                sis.reset_target(0);
+                sis.set_enabled(enable);
+            });
             LED_STATE.signal(Connected);
         } else {
             LED_STATE.signal(Enabled);
         }
-        context.steppers[*i].set_enabled(enable);
     } else {
         warn!("No OID match");
         return;

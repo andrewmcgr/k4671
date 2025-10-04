@@ -1,6 +1,6 @@
 use crate::TMC_CMD;
 use defmt::*;
-use embassy_sync::blocking_mutex::{Mutex as BlockingMutex, raw::CriticalSectionRawMutex};
+use embassy_sync::blocking_mutex::{CriticalSectionMutex};
 use embassy_time::{Duration, Instant};
 use heapless::Deque;
 use tmc4671::*;
@@ -9,10 +9,10 @@ use tmc4671::*;
 pub struct MutexWrapper;
 
 impl crate::target_queue::Mutex for MutexWrapper {
-    type Inner<T> = BlockingMutex<CriticalSectionRawMutex, T>;
+    type Inner<T> = CriticalSectionMutex<T>;
 
     fn new<T>(val: T) -> Self::Inner<T> {
-        BlockingMutex::new(val)
+        CriticalSectionMutex::new(val)
     }
 
     fn lock<T, R>(inner: &Self::Inner<T>, f: impl FnOnce(&T) -> R) -> R {
@@ -330,7 +330,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         } else {
             TMCCommand::Disable
         };
-        debug!("ES set_enabled {}", cmd);
+        info!("ES set_enabled {}", cmd);
         TMC_CMD.sender().try_send(cmd).ok();
     }
 }

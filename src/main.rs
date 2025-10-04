@@ -13,8 +13,11 @@ use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 // use embassy_stm32::timer::qei;
+use core::cell::RefCell;
+use core::ops::DerefMut;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
@@ -34,10 +37,11 @@ mod usb_anchor;
 use crate::leds::blink;
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
+pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
 
 const NUM_STEPPERS: usize = 1;
-static STEPPER_POOL: StaticCell<[EmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
-static STEPPERS: StaticCell<&'static mut [EmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
+static STEPPER_POOL: StaticCell<[ProtectedEmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
+static STEPPERS: StaticCell<&'static [ProtectedEmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -165,14 +169,14 @@ impl TrSync {
 
 pub struct State {
     config_crc: Option<u32>,
-    steppers: &'static mut [EmulatedStepper; NUM_STEPPERS],
+    steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
     steppers_by_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     steppers_by_enable_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     trsync: TrSync,
 }
 
 impl State {
-    pub fn new(steppers: &'static mut [EmulatedStepper; NUM_STEPPERS]) -> Self {
+    pub fn new(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) -> Self {
         Self {
             config_crc: None,
             steppers,
@@ -252,9 +256,24 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
     stepper.advance();
 }
 
+#[embassy_executor::task]
+async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
+    let mut ticker = tmc4671::TMCTimeIterator::new();
+    loop {
+        let ticks = ticker.next();
+        // Move processing
+        for stepper in steppers.iter() {
+            stepper.lock(|s| {
+                process_moves(s.borrow_mut().deref_mut(), ticks);
+            });
+        }
+        Timer::at(ticks).await
+    }
+}
+
 async fn anchor_protocol(
     pipe: &usb_anchor::AnchorPipe,
-    steppers: &'static mut [EmulatedStepper; NUM_STEPPERS],
+    steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
 ) {
     let mut state = State::new(steppers);
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
@@ -266,10 +285,6 @@ async fn anchor_protocol(
 
     loop {
         let ticks = ticker.next();
-        // Move processing
-        for stepper in  state.steppers.iter_mut() {
-            process_moves(stepper, ticks);
-        }
 
         // Check for commands from Klipper
         while let Ok(n) = pipe.try_read(&mut rx) {
@@ -293,10 +308,7 @@ async fn anchor_protocol(
 }
 
 #[embassy_executor::task]
-async fn usb_comms(
-    r: UsbResources,
-    steppers: &'static mut [EmulatedStepper; NUM_STEPPERS],
-) {
+async fn usb_comms(r: UsbResources, steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
     let mut config = embassy_stm32::usb::Config::default();
@@ -435,9 +447,12 @@ fn main() -> ! {
 
     let r = split_resources!(p);
 
-    let steppers = STEPPERS.init(STEPPER_POOL.init(
-        [stepper::EmulatedStepper::new(tmc4671::TMCTimeIterator::new()); NUM_STEPPERS],
-    ));
+    let stepper_pool = STEPPER_POOL.init(
+        [CriticalSectionMutex::new(RefCell::new(stepper::EmulatedStepper::new(
+            tmc4671::TMCTimeIterator::new(),
+        ))); NUM_STEPPERS],
+    );
+    let steppers = STEPPERS.init(stepper_pool);
 
     info!("Hello World!");
 
@@ -467,6 +482,7 @@ fn main() -> ! {
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
     spawner.spawn(blink(r.led).expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
