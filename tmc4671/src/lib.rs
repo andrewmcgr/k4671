@@ -122,19 +122,19 @@ pub enum FaultDetectionError<BusError> {
     sync(feature = "sync"),
     async(feature = "async")
 )]
-pub struct TMC4671<'a, I, O, P>
+pub struct TMC4671<'a, I, O>
 where
     I: embedded_interfaces::registers::RegisterInterface,
     O: OutputPin,
-    P: InputPin,
+    // P: InputPin,
 {
     enabled: bool,
     /// The interface to communicate with the device
     interface: I,
     command_rx: TMCCommandReceiver<'a>,
-    response_tx: TMCResponsePublisher<'a>,
+    // response_tx: TMCResponsePublisher<'a>,
     enable_pin: O,
-    flag_pin: P,
+    // flag_pin: P,
     brake_pin: O,
     current_scale_ma_lsb: f32,
     current_limit: u16,
@@ -157,11 +157,11 @@ where
     sync(feature = "sync"),
     async(feature = "async")
 )]
-impl<'a, I, O, P> TMC4671<'a, embedded_interfaces::spi::SpiDevice<I>, O, P>
+impl<'a, I, O> TMC4671<'a, embedded_interfaces::spi::SpiDevice<I>, O>
 where
     I: hal::spi::r#SpiDevice,
     O: OutputPin,
-    P: InputPin,
+    // P: InputPin,
 {
     /// Initializes a new device from the specified SPI device.
     /// This consumes the SPI device `I`.``
@@ -171,18 +171,18 @@ where
     pub fn new_spi(
         spi: I,
         command_rx: TMCCommandReceiver<'a>,
-        response_tx: TMCResponsePublisher<'a>,
+        // response_tx: TMCResponsePublisher<'a>,
         enable_pin: O,
-        flag_pin: P,
+        // flag_pin: P,
         brake_pin: O,
     ) -> Self {
         Self {
             enabled: false,
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
             command_rx: command_rx,
-            response_tx: response_tx,
+            // response_tx: response_tx,
             enable_pin: enable_pin,
-            flag_pin: flag_pin,
+            // flag_pin: flag_pin,
             brake_pin: brake_pin,
             current_scale_ma_lsb: 1.272,
             current_limit: 0,
@@ -232,11 +232,11 @@ macro_rules! pid_impl {
     sync(feature = "sync"),
     async(feature = "async")
 )]
-impl<'a, I, O, P> TMC4671<'a, I, O, P>
+impl<'a, I, O> TMC4671<'a, I, O>
 where
     I: embedded_interfaces::registers::RegisterInterface,
     O: OutputPin,
-    P: InputPin,
+    // P: InputPin,
 {
     //// Detect a device
     pub async fn ident(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {

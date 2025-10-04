@@ -356,15 +356,15 @@ async fn tmc_task(r: TmcResources) {
     let spi_bus = usb_anchor::AnchorMutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
     let enable = Output::new(r.enable, Level::High, Speed::VeryHigh);
-    let flag = Input::new(r.flag, Pull::Up);
+    // let flag = Input::new(r.flag, Pull::Up);
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
     let mut tmc = tmc4671::TMC4671Async::new_spi(
         spi_dev,
         TMC_CMD.dyn_receiver(),
-        TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
+        // TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
         enable,
-        flag,
+        // flag,
         brake,
     );
     LED_STATE.signal(LedState::Error);
