@@ -3,6 +3,7 @@ use core::cell::RefCell;
 use embassy_time::Instant;
 use heapless::Deque;
 
+#[derive(Debug)]
 pub struct TargetQueueInner<const N: usize> {
     queue: Deque<(Instant, u32), N>,
     last_value: u32,
@@ -32,6 +33,7 @@ pub trait Mutex {
     fn lock<T, R>(inner: &Self::Inner<T>, f: impl FnOnce(&T) -> R) -> R;
 }
 
+#[derive(Debug)]
 pub struct TargetQueue<M: Mutex, const N: usize> {
     inner: M::Inner<TargetQueueInnerTypeCell<N>>,
 }

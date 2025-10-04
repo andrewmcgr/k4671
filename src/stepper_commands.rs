@@ -1,8 +1,8 @@
+use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::stepper::Direction;
-use crate::LED_STATE;
 use crate::clock32_to_64;
+use crate::stepper::Direction;
 use embassy_time::Instant;
 
 use anchor::*;
@@ -21,76 +21,90 @@ pub fn config_stepper(
         "Config Stepper {} {} {} {} {}",
         oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks
     );
-    context.stepper.stepper_oid = Some(oid);
+    for i in 0..context.steppers.len() {
+        if context.steppers[i].stepper_oid.is_some() {
+            continue;
+        } else {
+            context.steppers_by_oid.insert(oid, i);
+            break;
+        }
+    }
 }
 
 #[klipper_command]
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
-    if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
+    if let Some(i) = context.steppers_by_oid.get(&oid) {
+        debug!("queue_step {} {} {}", interval, count, add);
+        context.steppers[*i].queue_move(interval, count, add);
+    } else {
         warn!("No OID match");
-        return;
     }
-    debug!("queue_step {} {} {}", interval, count, add);
-    context.stepper.queue_move(interval, count, add);
 }
 
 #[klipper_command]
 pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
-    if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
-        warn!("No OID match");
-        return;
-    }
-    context.stepper.set_next_dir(if dir == 1 {
-        debug!("Forward");
-        Direction::Forward
+    if let Some(i) = context.steppers_by_oid.get(&oid) {
+        debug!("Set next step dir {} {}", oid, dir);
+        context.steppers[*i].set_next_dir(if dir == 1 {
+            debug!("Forward");
+            Direction::Forward
+        } else {
+            debug!("Backward");
+            Direction::Backward
+        });
     } else {
-        debug!("Backward");
-        Direction::Backward
-    });
+        warn!("No OID match");
+    }
 }
 
 // Set an absolute time that the next step command will be relative to.
 #[klipper_command]
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
-    if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
+    if let Some(i) = context.steppers_by_oid.get(&oid) {
+        debug!("Reset step clock {} {}", oid, clock);
+        context.steppers[*i].reset_clock(Instant::from_ticks(
+            Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
+        ));
+    } else {
         warn!("No OID match");
-        return;
     }
-    debug!("Reset step clock {}", clock);
-    context.stepper.reset_clock(Instant::from_ticks(
-        Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
-    ));
 }
 
 #[klipper_command]
 pub fn stepper_get_position(context: &mut State, oid: u8) {
-    if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
+    if let Some(i) = context.steppers_by_oid.get(&oid) {
+        debug!("Stepper get position {}", oid);
+        let pos = context.steppers[*i].get_position();
+        debug!("Stepper position responds {}", pos);
+        klipper_reply!(stepper_position, oid: u8, pos: i32)
+    } else {
         warn!("No OID match");
         return;
     }
-    let pos = context.stepper.get_position();
-    debug!("Stepper position responds {}", pos);
-    klipper_reply!(stepper_position, oid: u8, pos: i32)
 }
 
 #[klipper_command]
 pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
-    if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
+    if let Some(i) = context.steppers_by_oid.get(&oid) {
+        debug!("Stepper get commanded position {}", oid);
+        let pos = context.steppers[*i].get_commanded_position();
+        debug!("Stepper commanded position responds {}", pos);
+        klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
+    } else {
         warn!("No OID match");
         return;
     }
-    let pos = context.stepper.get_commanded_position();
-    debug!("Stepper commanded position {}", pos);
-    klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
 }
 
 #[klipper_command]
 pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, _trsync_oid: u8) {
-    if context.stepper.stepper_oid.map_or(false, |o| o != oid) {
+    if let Some(i) = context.steppers_by_oid.get(&oid) {
+        debug!("Stepper stop on trigger {}", oid);
+        // context.steppers[*i].stop_on_trigger();
+    } else {
         warn!("No OID match");
         return;
     }
-    // klipper_shutdown!("trsync not supported", Clock::clock32());
 }
 
 #[klipper_command]
@@ -107,41 +121,41 @@ pub fn config_digital_out(
     if pin != u8::from(Pins::Enable) {
         return;
     }
-    context.stepper.stepper_enable_oid = Some(oid);
+    context.steppers[0].stepper_enable_oid = Some(oid);
+    context.steppers_by_enable_oid.insert(oid, 0).ok();
 }
 
 #[klipper_command]
 pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u32) {
-    if Some(oid) != context.stepper.stepper_enable_oid {
-        warn!("No OID match");
-        return;
+    if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
+        debug!("Queue digital out {} {} {}", oid, _clock, on_ticks);
+        let enable = on_ticks != 0;
+        if !enable {
+            context.steppers[*i].reset_target(0);
+            LED_STATE.signal(Connected);
+        } else {
+            LED_STATE.signal(Enabled);
+        }
+        context.steppers[*i].set_enabled(enable);
     }
-    debug!("Queue digital out {} {} {}", oid, _clock, on_ticks);
-    let enable = on_ticks != 0;
-    if !enable {
-        context.stepper.reset_target(0);
-        LED_STATE.signal(Connected);
-    } else {
-        LED_STATE.signal(Enabled);
-    }
-    context.stepper.set_enabled(enable);
 }
 
 #[klipper_command]
 pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
-    if Some(oid) != context.stepper.stepper_enable_oid {
+    if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
+        debug!("Update digital out {} {}", oid, value);
+        let enable = value != 0;
+        if !enable {
+            context.steppers[*i].reset_target(0);
+            LED_STATE.signal(Connected);
+        } else {
+            LED_STATE.signal(Enabled);
+        }
+        context.steppers[*i].set_enabled(enable);
+    } else {
         warn!("No OID match");
         return;
     }
-    debug!("Update digital out {} {}", oid, value);
-    let enable = value != 0;
-    if !enable {
-        context.stepper.reset_target(0);
-        LED_STATE.signal(Connected);
-    } else {
-        LED_STATE.signal(Enabled);
-    }
-    context.stepper.set_enabled(enable);
 }
 
 klipper_enumeration! {

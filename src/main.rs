@@ -16,8 +16,10 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::signal::Signal;
-use embassy_time::{Instant, TICK_HZ, Timer, Duration};
+use embassy_time::{Duration, Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
+
+use heapless::LinearMap;
 
 use anchor::*;
 use tmc4671::{self, CS, TimeIterator, config::TMC4671Config};
@@ -30,6 +32,12 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
+
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
+
+const NUM_STEPPERS: usize = 1;
+static STEPPER_POOL: StaticCell<[EmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
+static STEPPERS: StaticCell<&'static mut [EmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -85,8 +93,6 @@ klipper_enumeration!(
     }
 );
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
-
 pub fn clock32_to_64(clock32: u32) -> Instant {
     let now_ticks = Instant::now().as_ticks();
     let diff = (now_ticks as u32).wrapping_sub(clock32) as u64;
@@ -119,7 +125,7 @@ impl TrSync {
             can_trigger: false,
         }
     }
-    
+
     fn process_trsync(self: &mut TrSync) {
         // trsync processing
         if let Some(oid) = self.oid {
@@ -128,8 +134,7 @@ impl TrSync {
                 if now > report_clock {
                     // Timer has expired
                     if let Some(ticks) = self.report_ticks {
-                        self.report_clock =
-                            Some(report_clock + Duration::from_ticks(ticks as u64));
+                        self.report_clock = Some(report_clock + Duration::from_ticks(ticks as u64));
                     } else {
                         self.report_clock = None;
                     }
@@ -160,17 +165,19 @@ impl TrSync {
 
 pub struct State {
     config_crc: Option<u32>,
-    stepper: EmulatedStepper,
-    target_queue: crate::stepper::TargetQueue,
+    steppers: &'static mut [EmulatedStepper; NUM_STEPPERS],
+    steppers_by_oid: LinearMap<u8, usize, NUM_STEPPERS>,
+    steppers_by_enable_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     trsync: TrSync,
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(steppers: &'static mut [EmulatedStepper; NUM_STEPPERS]) -> Self {
         Self {
             config_crc: None,
-            stepper: EmulatedStepper::new(tmc4671::TMCTimeIterator::new()),
-            target_queue: crate::stepper::TargetQueue::new(),
+            steppers,
+            steppers_by_oid: LinearMap::new(),
+            steppers_by_enable_oid: LinearMap::new(),
             trsync: TrSync::new(),
         }
     }
@@ -203,13 +210,13 @@ pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
-fn process_moves(state: &mut State, next_time: Instant) {
+fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
     static mut LAST_POS: i32 = 0;
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
         position_2: c2,
-    } = state.target_queue.get_for_control(next_time);
+    } = stepper.target_queue.get_for_control(next_time);
     if target_position != unsafe { LAST_POS } {
         debug!("Target pos {} {}", target_position, next_time.as_ticks());
         unsafe { LAST_POS = target_position };
@@ -242,11 +249,14 @@ fn process_moves(state: &mut State, next_time: Instant) {
         .sender()
         .try_send(tmc4671::TMCCommand::Move(target_position, v0, a0))
         .ok();
-    state.stepper.advance(&mut state.target_queue);
+    stepper.advance();
 }
 
-async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
-    let mut state = State::new();
+async fn anchor_protocol(
+    pipe: &usb_anchor::AnchorPipe,
+    steppers: &'static mut [EmulatedStepper; NUM_STEPPERS],
+) {
+    let mut state = State::new(steppers);
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
     let mut receiver_buf: RxBuf = RxBuf::new();
     let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
@@ -257,7 +267,9 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
     loop {
         let ticks = ticker.next();
         // Move processing
-        process_moves(&mut state, ticks);
+        for stepper in  state.steppers.iter_mut() {
+            process_moves(stepper, ticks);
+        }
 
         // Check for commands from Klipper
         while let Ok(n) = pipe.try_read(&mut rx) {
@@ -281,7 +293,10 @@ async fn anchor_protocol(pipe: &usb_anchor::AnchorPipe) {
 }
 
 #[embassy_executor::task]
-async fn usb_comms(r: UsbResources) {
+async fn usb_comms(
+    r: UsbResources,
+    steppers: &'static mut [EmulatedStepper; NUM_STEPPERS],
+) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
     let mut config = embassy_stm32::usb::Config::default();
@@ -298,7 +313,7 @@ async fn usb_comms(r: UsbResources) {
     let in_pipe = usb_anchor::AnchorPipe::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
     let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
-    let anchor_protocol_fut = anchor_protocol(&in_pipe);
+    let anchor_protocol_fut = anchor_protocol(&in_pipe, steppers);
     join(anchor_fut, anchor_protocol_fut).await;
 }
 
@@ -420,6 +435,10 @@ fn main() -> ! {
 
     let r = split_resources!(p);
 
+    let steppers = STEPPERS.init(STEPPER_POOL.init(
+        [stepper::EmulatedStepper::new(tmc4671::TMCTimeIterator::new()); NUM_STEPPERS],
+    ));
+
     info!("Hello World!");
 
     // let _ = ENCODER.init(qei::Qei::new(
@@ -454,6 +473,6 @@ fn main() -> ! {
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
+        spawner.spawn(usb_comms(r.usb, steppers).expect("Spawn failure"));
     });
 }

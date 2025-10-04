@@ -5,6 +5,7 @@ use embassy_time::{Duration, Instant};
 use heapless::Deque;
 use tmc4671::*;
 
+#[derive(Debug)]
 pub struct MutexWrapper;
 
 impl crate::target_queue::Mutex for MutexWrapper {
@@ -18,6 +19,7 @@ impl crate::target_queue::Mutex for MutexWrapper {
         inner.lock(f)
     }
 }
+
 
 pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 2000>;
 
@@ -152,6 +154,7 @@ pub trait Callbacks {
 #[derive(Debug)]
 pub struct EmulatedStepper<T, const N: usize> {
     queue: heapless::Deque<Move, N>,
+    pub target_queue: TargetQueue,
     current_move: Option<Move>,
     next_direction: Direction,
     state: State,
@@ -198,6 +201,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     pub fn new(target_time: T) -> Self {
         Self {
             queue: Deque::new(),
+            target_queue: TargetQueue::new(),
             stepper_oid: None,
             stepper_enable_oid: None,
             current_move: None,
@@ -227,7 +231,8 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.reset_target = Some(new_target);
     }
 
-    pub fn advance(&mut self, callbacks: &mut impl Callbacks) {
+    pub fn advance(&mut self) {
+        let callbacks = &mut self.target_queue;
         if let Some(reset_target) = self.reset_target.take() {
             self.state.position = reset_target;
             self.callback_state
