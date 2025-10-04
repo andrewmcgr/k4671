@@ -294,10 +294,15 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         };
         debug!("ES queue_move {}", cmd);
         if self.queue.push_back(cmd).is_err() {
-            debug!("ES queue full");
+            warn!("ES queue full");
             return false;
         }
         true
+    }
+
+    pub fn stop(&mut self) {
+        self.queue.clear();
+        self.current_move = None;
     }
 
     pub fn set_next_dir(&mut self, dir: Direction) {

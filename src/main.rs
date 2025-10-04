@@ -114,6 +114,7 @@ pub struct TrSync {
     expire_reason: u8,
     trigger_reason: u8,
     timeout_clock: Option<Instant>,
+    stepper_oids: [Option<u8>; NUM_STEPPERS],
     can_trigger: bool,
 }
 
@@ -127,6 +128,7 @@ impl TrSync {
             trigger_reason: 0,
             timeout_clock: None,
             can_trigger: false,
+            stepper_oids: [None; NUM_STEPPERS],
         }
     }
 

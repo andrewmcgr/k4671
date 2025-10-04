@@ -106,7 +106,15 @@ pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
 pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, _trsync_oid: u8) {
     if let Some(_i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper stop on trigger {}", oid);
-        // context.steppers[*i].stop_on_trigger();
+        for i in 0..context.trsync.stepper_oids.len() {
+            if context.trsync.stepper_oids[i] == Some(oid) {
+                continue;
+            }
+            if context.trsync.stepper_oids[i].is_none() {
+                context.trsync.stepper_oids[i] = Some(oid);
+                return;
+            }
+        }
     } else {
         warn!("No OID match");
         return;
@@ -231,6 +239,13 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
     if trsync.oid != Some(oid) {
         warn!("No OID match");
         return;
+    }
+    for i in 0..trsync.stepper_oids.len() {
+        context.steppers[i].lock(|s| {
+            let mut sis = s.borrow_mut();
+            let sis = sis.deref_mut();
+            sis.stop();
+        });
     }
     trsync.trigger_reason = reason;
     trsync.can_trigger = false;
