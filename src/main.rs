@@ -2,6 +2,7 @@
 #![no_main]
 
 use cortex_m_rt::entry;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use assign_resources::assign_resources;
 use defmt::*;
@@ -132,38 +133,31 @@ impl TrSync {
         }
     }
 
-    fn process_trsync(self: &mut TrSync) {
+    fn process_trsync(self: &mut TrSync, oid: u8) {
         // trsync processing
-        if let Some(oid) = self.oid {
-            let now = Instant::now();
-            if let Some(report_clock) = self.report_clock {
-                if now > report_clock {
-                    // Timer has expired
-                    if let Some(ticks) = self.report_ticks {
-                        self.report_clock = Some(report_clock + Duration::from_ticks(ticks as u64));
-                    } else {
-                        self.report_clock = None;
-                    }
-                    stepper_commands::trsync_report(
-                        oid,
-                        if self.can_trigger { 1 } else { 0 },
-                        self.trigger_reason,
-                        now.as_ticks() as u32,
-                    );
+        let now = Instant::now();
+        if let Some(report_clock) = self.report_clock {
+            if now > report_clock {
+                // Timer has expired
+                if let Some(ticks) = self.report_ticks {
+                    self.report_clock = Some(report_clock + Duration::from_ticks(ticks as u64));
+                } else {
+                    self.report_clock = None;
                 }
+                stepper_commands::trsync_report(
+                    oid,
+                    if self.can_trigger { 1 } else { 0 },
+                    self.trigger_reason,
+                    now.as_ticks() as u32,
+                );
             }
-            if self.can_trigger && self.timeout_clock.is_some() {
-                if now > self.timeout_clock.unwrap() {
-                    // Timer has expired
-                    self.timeout_clock = None;
-                    self.can_trigger = false;
-                    stepper_commands::trsync_report(
-                        oid,
-                        0,
-                        self.expire_reason,
-                        now.as_ticks() as u32,
-                    );
-                }
+        }
+        if self.can_trigger && self.timeout_clock.is_some() {
+            if now > self.timeout_clock.unwrap() {
+                // Timer has expired
+                self.timeout_clock = None;
+                self.can_trigger = false;
+                stepper_commands::trsync_report(oid, 0, self.expire_reason, now.as_ticks() as u32);
             }
         }
     }
@@ -174,7 +168,6 @@ pub struct State {
     steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
     steppers_by_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     steppers_by_enable_oid: LinearMap<u8, usize, NUM_STEPPERS>,
-    trsync: TrSync,
 }
 
 impl State {
@@ -184,7 +177,6 @@ impl State {
             steppers,
             steppers_by_oid: LinearMap::new(),
             steppers_by_enable_oid: LinearMap::new(),
-            trsync: TrSync::new(),
         }
     }
 }
@@ -208,6 +200,30 @@ impl TransportOutput for BufferTransportOutput {
         } else {
             debug!("USB transmit buffer full???");
         }
+    }
+}
+
+pub static TRSYNC: CriticalSectionMutex<RefCell<LinearMap<u8, TrSync, NUM_STEPPERS>>> =
+    CriticalSectionMutex::new(RefCell::new(LinearMap::new()));
+static TRSYNC_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[embassy_executor::task]
+async fn trsync_processing() {
+    let mut ticker = tmc4671::TMCTimeIterator::new();
+    ticker.set_period(Duration::from_hz(5000));
+    loop {
+        let ticks = ticker.next();
+        // TrSync processing
+        if TRSYNC_COUNT.load(core::sync::atomic::Ordering::Relaxed) > 0 {
+            TRSYNC.lock(|m| {
+                let mut m = m.borrow_mut();
+                let m = m.deref_mut();
+                for (oid, trsync) in m.iter_mut() {
+                    trsync.process_trsync(*oid);
+                }
+            });
+        }
+        Timer::at(ticks).await
     }
 }
 
@@ -301,9 +317,6 @@ async fn anchor_protocol(
                 }
             }
         }
-
-        // TrSync processing
-        state.trsync.process_trsync();
 
         Timer::at(ticks).await
     }
@@ -485,7 +498,7 @@ fn main() -> ! {
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
     spawner.spawn(blink(r.led).expect("Spawn failure"));
     spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-
+    spawner.spawn(trsync_processing().expect("Spawn failure"));
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */

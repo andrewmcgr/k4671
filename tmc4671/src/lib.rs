@@ -1035,6 +1035,7 @@ where
                     }
                     TMCCommand::Disable => {
                         debug!("TMC Command {}", cmd);
+                        self.set_motion_mode(MotionMode::StoppedMode).await.ok();
                         self.disable_motor().await.ok();
                     }
                     TMCCommand::Move(pos, _vel, _accel) => {

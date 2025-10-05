@@ -18,7 +18,7 @@ pub fn config_stepper(
     _invert_step: u8,
     _step_pulse_ticks: u32,
 ) {
-    debug!(
+    info!(
         "Config Stepper {} {} {} {} {}",
         oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks
     );
@@ -65,7 +65,7 @@ pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
 #[klipper_command]
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
-        debug!("Reset step clock {} {}", oid, clock);
+        info!("Reset step clock {} {}", oid, clock);
         context.steppers[*i].lock(|s| {
             s.borrow_mut().deref_mut().reset_clock(Instant::from_ticks(
                 Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
@@ -81,7 +81,7 @@ pub fn stepper_get_position(context: &mut State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get position {}", oid);
         let pos = context.steppers[*i].lock(|s| s.borrow().deref().get_position());
-        debug!("Stepper position responds {}", pos);
+        info!("Stepper position responds {}", pos);
         klipper_reply!(stepper_position, oid: u8, pos: i32)
     } else {
         warn!("No OID match");
@@ -94,7 +94,7 @@ pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get commanded position {}", oid);
         let pos = context.steppers[*i].lock(|s| s.borrow().deref().get_commanded_position());
-        debug!("Stepper commanded position responds {}", pos);
+        info!("Stepper commanded position responds {}", pos);
         klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
     } else {
         warn!("No OID match");
@@ -103,22 +103,26 @@ pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
 }
 
 #[klipper_command]
-pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, _trsync_oid: u8) {
-    if let Some(_i) = context.steppers_by_oid.get(&oid) {
-        debug!("Stepper stop on trigger {}", oid);
-        for i in 0..context.trsync.stepper_oids.len() {
-            if context.trsync.stepper_oids[i] == Some(oid) {
-                continue;
+pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, trsync_oid: u8) {
+    crate::TRSYNC.lock(|m| {
+        let mut m = m.borrow_mut();
+        let m = m.deref_mut();
+        if let Some(t) = m.get_mut(&trsync_oid) {
+            info!("Stepper stop on trigger {} {}", oid, trsync_oid);
+            for i in 0..t.stepper_oids.len() {
+                if t.stepper_oids[i] == Some(oid) {
+                    continue;
+                }
+                if t.stepper_oids[i].is_none() {
+                    t.stepper_oids[i] = Some(oid);
+                    return;
+                }
             }
-            if context.trsync.stepper_oids[i].is_none() {
-                context.trsync.stepper_oids[i] = Some(oid);
-                return;
-            }
+        } else {
+            warn!("No OID match");
+            return;
         }
-    } else {
-        warn!("No OID match");
-        return;
-    }
+    });
 }
 
 #[klipper_command]
@@ -131,7 +135,7 @@ pub fn config_digital_out(
     _max_duration: u32,
 ) {
     let epin = Pins::try_from(pin);
-    debug!("Config digital out {} {} {}", oid, pin, epin);
+    info!("Config digital out {} {} {}", oid, pin, epin);
     if pin != u8::from(Pins::Enable) {
         return;
     }
@@ -144,7 +148,7 @@ pub fn config_digital_out(
 #[klipper_command]
 pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u32) {
     if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
-        debug!("Queue digital out {} {} {}", oid, _clock, on_ticks);
+        info!("Queue digital out {} {} {}", oid, _clock, on_ticks);
         let enable = on_ticks != 0;
         context.steppers[*i].lock(|s| {
             let mut sis = s.borrow_mut();
@@ -163,7 +167,7 @@ pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u3
 #[klipper_command]
 pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
     if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
-        debug!("Update digital out {} {}", oid, value);
+        info!("Update digital out {} {}", oid, value);
         let enable = value != 0;
         if !enable {
             context.steppers[*i].lock(|s| {
@@ -196,7 +200,13 @@ klipper_enumeration! {
 
 #[klipper_command]
 pub fn config_trsync(context: &mut State, oid: u8) {
-    context.trsync.oid = Some(oid);
+    info!("Config trsync {}", oid);
+    crate::TRSYNC.lock(|m| {
+        let mut m = m.borrow_mut();
+        let m = m.deref_mut();
+        m.insert(oid, crate::TrSync::new()).ok();
+        crate::TRSYNC_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    });
 }
 
 #[klipper_command]
@@ -207,51 +217,61 @@ pub fn trsync_start(
     report_ticks: u32,
     expire_reason: u8,
 ) {
-    let trsync = &mut context.trsync;
-    if trsync.oid != Some(oid) {
-        warn!("No OID match");
-        return;
-    }
-    trsync.report_clock = if report_clock != 0 {
-        Some(clock32_to_64(report_clock))
-    } else {
-        None
-    };
-    trsync.report_ticks = Some(report_ticks);
-    trsync.trigger_reason = 0;
-    trsync.can_trigger = true;
-    trsync.expire_reason = expire_reason;
+    info!("TrSync start {} {} {} {}", oid, report_clock, report_ticks, expire_reason);
+    crate::TRSYNC.lock(|m| {
+        let mut m = m.borrow_mut();
+        let m = m.deref_mut();
+        let trsync = m.get_mut(&oid).expect("No OID match");
+
+        trsync.report_clock = if report_clock != 0 {
+            Some(clock32_to_64(report_clock))
+        } else {
+            None
+        };
+        trsync.report_ticks = Some(report_ticks);
+        trsync.trigger_reason = 0;
+        trsync.can_trigger = true;
+        trsync.expire_reason = expire_reason;
+    });
 }
 
 #[klipper_command]
 pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
-    let trsync = &mut context.trsync;
-    if trsync.oid != Some(oid) {
-        warn!("No OID match");
-        return;
-    }
-    trsync.timeout_clock = Some(clock32_to_64(clock));
+    info!("TrSync set timeout {} {}", oid, clock);
+    crate::TRSYNC.lock(|m| {
+        let mut m = m.borrow_mut();
+        let m = m.deref_mut();
+        let trsync = m.get_mut(&oid).expect("No OID match");
+
+        trsync.timeout_clock = Some(clock32_to_64(clock));
+    });
 }
 
 #[klipper_command]
 pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
-    let trsync = &mut context.trsync;
-    if trsync.oid != Some(oid) {
-        warn!("No OID match");
-        return;
-    }
-    for i in 0..trsync.stepper_oids.len() {
-        context.steppers[i].lock(|s| {
-            let mut sis = s.borrow_mut();
-            let sis = sis.deref_mut();
-            sis.stop();
-        });
-    }
-    trsync.trigger_reason = reason;
-    trsync.can_trigger = false;
-    trsync.timeout_clock = None;
-    trsync.report_clock = None;
-    trsync_report(oid, 0, reason, 0);
+    info!("TrSync trigger {} {}", oid, reason);
+    crate::TRSYNC.lock(|m| {
+        let mut m = m.borrow_mut();
+        let m = m.deref_mut();
+        let trsync = m.get_mut(&oid).expect("No OID match");
+
+        for i in 0..trsync.stepper_oids.len() {
+            context.steppers[i].lock(|s| {
+                let mut sis = s.borrow_mut();
+                let sis = sis.deref_mut();
+                sis.stop();
+            });
+        }
+        if trsync.can_trigger {
+            trsync.trigger_reason = reason;
+            trsync.can_trigger = false;
+        }
+        trsync.timeout_clock = None;
+        trsync.report_clock = None;
+        trsync_report(oid, 0, reason, 0);
+        crate::TRSYNC_COUNT.fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+        m.remove(&oid);
+    });
 }
 
 pub fn trsync_report(oid: u8, can_trigger: u8, reason: u8, clock: u32) {
