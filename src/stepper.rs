@@ -250,7 +250,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 Some(m) => m,
             };
 
-            debug!("ES advance {:?}", cmd);
+            trace!("ES advance {:?}", cmd);
 
             // Get next PID tick
             let mut next_time = self.target_time.next();
@@ -292,7 +292,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             add,
             direction: self.next_direction,
         };
-        debug!("ES queue_move {}", cmd);
+        trace!("ES queue_move {}", cmd);
         if self.queue.push_back(cmd).is_err() {
             warn!("ES queue full");
             return false;

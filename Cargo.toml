@@ -18,15 +18,15 @@ embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
 num-traits = { version = "0.2", features = ["libm"], default-features = false }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
-cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
-cortex-m-rt = "0.7.5"
+cortex-m = { version = "0.7", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7"
 #embedded-hal = "0.2.6"
 #embedded-hal-bus = { version = "0.2", features = ["async"] }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 futures-util = { version = "0.3.30", default-features = false }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
 nb = "1.0.0"
 embedded-storage = "0.3.1"
