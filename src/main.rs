@@ -105,6 +105,16 @@ klipper_enumeration!(
     }
 );
 
+// pub fn clock32_to_64(clock32: u32) -> Instant {
+//     let now_ticks = Instant::now().as_ticks();
+//     let diff = (now_ticks as u32).wrapping_sub(clock32) as u64;
+//     Instant::from_ticks(if diff & 0x8000_0000 != 0 {
+//         now_ticks + 0x1_0000_0000 - diff
+//     } else {
+//         now_ticks - diff
+//     })
+// }
+
 pub fn clock32_to_64(clock32: u32) -> Instant {
     let now_ticks = Instant::now().as_ticks();
     let diff = (now_ticks as u32).wrapping_sub(clock32) as u64;
@@ -167,8 +177,9 @@ impl TrSync {
                 // Timer has expired
                 self.timeout_clock = None;
                 self.can_trigger = false;
-                stepper_commands::trsync_report(oid, 0, self.expire_reason, now.as_ticks() as u32);
-                rv = None;
+                self.trigger_reason = self.expire_reason;
+                stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
+                // rv = None;
             }
         }
         return rv;
@@ -221,16 +232,14 @@ impl TransportOutput for BufferTransportOutput {
 }
 
 #[embassy_executor::task]
-async fn trsync_processing(
-    trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
-) {
+async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
     let mut receiver = TRSYNC_WATCH.receiver().unwrap();
     let sender = TRSYNC_WATCH.sender();
 
     loop {
         // Wait for something to do
         receiver.changed_and(|v| *v > 0).await;
-        while receiver.try_get_and(|v| *v > 0).is_some() {
+        loop {
             let mut ticks: Option<Instant> = None;
 
             for t in trsync.iter() {
