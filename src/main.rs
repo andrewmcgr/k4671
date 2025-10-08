@@ -38,7 +38,7 @@ mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 20>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
 pub type ProtectedTrSync = CriticalSectionMutex<RefCell<TrSync>>;
 
@@ -154,35 +154,56 @@ impl TrSync {
     fn process_trsync(self: &mut TrSync, oid: u8) -> Option<Instant> {
         // trsync processing
         let now = Instant::now();
-        let mut rv = Option::<Instant>::None;
+        let mut rv = Instant::MAX;
         if let Some(report_clock) = self.report_clock {
+            info!("TrSync check {} now {} report {}", oid, now.as_ticks(), report_clock.as_ticks());
             if now >= report_clock {
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
-                    self.report_clock = Some(report_clock + Duration::from_ticks(ticks as u64));
+                    info!("TrSync report {} now {} ticks {}", oid, now.as_ticks(), ticks);
+                    let next = report_clock + Duration::from_ticks(ticks as u64);
+                    self.report_clock = Some(next);
+                    if next < rv {
+                        rv = next;
+                    }
                 } else {
+                    info!("TrSync report {} now {} ticks None", oid, now.as_ticks());
                     self.report_clock = None;
                 }
-                rv = self.report_clock;
                 stepper_commands::trsync_report(
                     oid,
                     if self.can_trigger { 1 } else { 0 },
                     self.trigger_reason,
                     now.as_ticks() as u32,
                 );
+            } else {
+                if let Some(next) = self.report_clock {
+                    if next < rv {
+                        rv = next;
+                    }
+                }
             }
         }
         if self.can_trigger && self.timeout_clock.is_some() {
+            info!("TrSync check {} now {} timeout {}", oid, now.as_ticks(), self.timeout_clock.unwrap().as_ticks());
             if now > self.timeout_clock.unwrap() {
+                info!("TrSync timeout {} now {}", oid, now.as_ticks());
                 // Timer has expired
                 self.timeout_clock = None;
                 self.can_trigger = false;
                 self.trigger_reason = self.expire_reason;
                 stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
                 // rv = None;
+            } else {
+                if let Some(next) = self.timeout_clock {
+                    if next < rv {
+                        rv = next;
+                    }
+                }
             }
         }
-        return rv;
+        info!("TrSync done {} returns {}", oid, rv);
+        return if rv == Instant::MAX { None } else { Some(rv) };
     }
 }
 
@@ -239,27 +260,32 @@ async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
     loop {
         // Wait for something to do
         receiver.changed_and(|v| *v > 0).await;
+        info!("TrSync wake");
         loop {
-            let mut ticks: Option<Instant> = None;
+            let mut ticks = Instant::MAX;
 
             for t in trsync.iter() {
                 t.lock(|t| {
                     let mut t = t.borrow_mut();
                     let t = t.deref_mut();
+                    trace!("TrSync processing {}", t.oid);
                     if let Some(oid) = t.oid {
-                        if let Some(t) = t.process_trsync(oid)
-                            && ticks.map_or(true, |v| t < v)
+                        if let Some(time) = t.process_trsync(oid)
+                            && time < ticks
                         {
-                            ticks = Some(t);
+                            info!("TrSync next candidate {} at {}", oid, time.as_ticks());
+                            ticks = time;
                         }
                     }
                 });
             }
 
-            if let Some(ticks) = ticks {
+            if ticks != Instant::MAX {
+                info!("TrSync next at {}", ticks.as_ticks());
                 Timer::at(ticks).await
             } else {
                 // Nothing to do, go back to sleep
+                info!("TrSync idle");
                 sender.send(0);
                 break;
             }

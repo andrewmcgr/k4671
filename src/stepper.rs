@@ -21,7 +21,7 @@ impl crate::target_queue::Mutex for MutexWrapper {
 }
 
 
-pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 2000>;
+pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 200>;
 
 #[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Direction {
@@ -302,6 +302,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
 
     pub fn stop(&mut self) {
         self.queue.clear();
+        self.target_queue.clear();
         self.current_move = None;
     }
 

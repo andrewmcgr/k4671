@@ -58,6 +58,10 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
         !M::lock(&self.inner, |q| q.borrow().queue.is_full())
     }
 
+    pub fn clear(&self) {
+        M::lock(&self.inner, |q| q.borrow_mut().queue.clear());
+    }
+
     fn append(&self, time: Instant, value: u32) {
         M::lock(&self.inner, |q| {
             let mut q = q.borrow_mut();
