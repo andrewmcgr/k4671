@@ -105,23 +105,13 @@ klipper_enumeration!(
     }
 );
 
-// pub fn clock32_to_64(clock32: u32) -> Instant {
-//     let now_ticks = Instant::now().as_ticks();
-//     let diff = (now_ticks as u32).wrapping_sub(clock32) as u64;
-//     Instant::from_ticks(if diff & 0x8000_0000 != 0 {
-//         now_ticks + 0x1_0000_0000 - diff
-//     } else {
-//         now_ticks - diff
-//     })
-// }
-
 pub fn clock32_to_64(clock32: u32) -> Instant {
     let now_ticks = Instant::now().as_ticks();
-    let diff = (now_ticks as u32).wrapping_sub(clock32) as u64;
+    let diff = (now_ticks as u32).wrapping_sub(clock32) as u32;
     Instant::from_ticks(if diff & 0x8000_0000 != 0 {
-        now_ticks + 0x1_0000_0000 - diff
+        now_ticks + 0x1_0000_0000 - diff as u64
     } else {
-        now_ticks - diff
+        now_ticks - diff as u64
     })
 }
 
@@ -156,11 +146,21 @@ impl TrSync {
         let now = Instant::now();
         let mut rv = Instant::MAX;
         if let Some(report_clock) = self.report_clock {
-            info!("TrSync check {} now {} report {}", oid, now.as_ticks(), report_clock.as_ticks());
+            info!(
+                "TrSync check {} now {} report {}",
+                oid,
+                now.as_ticks(),
+                report_clock.as_ticks()
+            );
             if now >= report_clock {
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
-                    info!("TrSync report {} now {} ticks {}", oid, now.as_ticks(), ticks);
+                    info!(
+                        "TrSync report {} now {} ticks {}",
+                        oid,
+                        now.as_ticks(),
+                        ticks
+                    );
                     let next = report_clock + Duration::from_ticks(ticks as u64);
                     self.report_clock = Some(next);
                     if next < rv {
@@ -185,7 +185,12 @@ impl TrSync {
             }
         }
         if self.can_trigger && self.timeout_clock.is_some() {
-            info!("TrSync check {} now {} timeout {}", oid, now.as_ticks(), self.timeout_clock.unwrap().as_ticks());
+            info!(
+                "TrSync check {} now {} timeout {}",
+                oid,
+                now.as_ticks(),
+                self.timeout_clock.unwrap().as_ticks()
+            );
             if now > self.timeout_clock.unwrap() {
                 info!("TrSync timeout {} now {}", oid, now.as_ticks());
                 // Timer has expired
@@ -359,34 +364,33 @@ async fn anchor_protocol(
     pipe: &usb_anchor::AnchorPipe,
     steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
     trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
-) {
+) -> ! {
     let mut state = State::new(steppers, trsync);
     type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
     let mut receiver_buf: RxBuf = RxBuf::new();
     let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
         [0; usb_anchor::MAX_PACKET_SIZE as usize];
-    let mut ticker = tmc4671::TMCTimeIterator::new();
+    // let mut ticker = tmc4671::TMCTimeIterator::new();
     info!("Hello Anchor!");
 
     loop {
-        let ticks = ticker.next();
+        // let ticks = ticker.next();
 
         // Check for commands from Klipper
-        while let Ok(n) = pipe.try_read(&mut rx) {
-            receiver_buf.extend(&rx[..n]);
-            let recv_data = receiver_buf.data();
-            if !recv_data.is_empty() {
-                let mut wrap = SliceInputBuffer::new(recv_data);
-                KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
-                let consumed = recv_data.len() - wrap.available();
-                if consumed > 0 {
-                    receiver_buf.pop(consumed);
-                }
+        let n = pipe.read(&mut rx).await;
+        receiver_buf.extend(&rx[..n]);
+        let recv_data = receiver_buf.data();
+        if !recv_data.is_empty() {
+            let mut wrap = SliceInputBuffer::new(recv_data);
+            KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
+            let consumed = recv_data.len() - wrap.available();
+            if consumed > 0 {
+                receiver_buf.pop(consumed);
             }
         }
-
-        Timer::at(ticks).await
     }
+
+    // Timer::at(ticks).await
 }
 
 #[embassy_executor::task]
@@ -486,12 +490,12 @@ unsafe fn UART5() {
 //     TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
 //     let mut old_pos = 0;
 //     loop {
-//         let pos = ENCODER.get().await.count();
-//         let pos = if pos > 32768 {
-//             (pos as i32) - 65536
-//         } else {
-//             pos as i32
-//         };
+// let pos = ENCODER.get().await.count();
+// let pos = if pos > 32768 {
+//     (pos as i32) - 65536
+// } else {
+//     pos as i32
+// };
 //         let pos = pos * 256;
 //         let dpos = (pos - old_pos) as f32;
 //         old_pos = pos;
@@ -572,13 +576,13 @@ fn main() -> ! {
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
     spawner.spawn(blink(r.led).expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
+        spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+        spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
     });
 }

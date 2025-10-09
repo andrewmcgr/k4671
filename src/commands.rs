@@ -76,6 +76,9 @@ const MCU: &str = "k4671_openffboard";
 #[klipper_constant]
 const STATS_SUMSQ_BASE: u32 = 256;
 
+#[klipper_constant]
+const RECEIVE_WINDOW: u32 = 512;
+
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
 
