@@ -9,17 +9,17 @@ pub struct TMC4671Config {
     pub run_current: f32,
     #[builder(default = 0.0)]
     pub flux_current: f32,
-    #[builder(default = 0.3)]
+    #[builder(default = 0.15)]
     pub ff_current: f32,
     #[builder(default = 1.0)]
     pub ff_pos: f32,
-    #[builder(default = 1.0)]
+    #[builder(default = 0.5)]
     pub ff_vel: f32,
-    #[builder(default = 1.0)]
+    #[builder(default = 0.5)]
     pub ff_torque: f32,
     #[builder(default = 43.64)]
     pub voltage_scale: f32,
-    #[builder(default = 50e3)]
+    #[builder(default = 25e3)]
     pub pwm_freq_target: f32,
     #[builder(default = 50)]
     pub n_pole_pairs: u16,
@@ -95,16 +95,16 @@ pub struct TMC4671Config {
     pub pid_position_limit_high: i32,
     #[builder(default = 0x1000000)]
     pub pid_velocity_limit: u32,
-    #[builder(default = (6.57, 0.00))]
+    #[builder(default = (6.2, 0.00119))]
     // #[builder(default = (2.6, 0.000277))]
     pub pid_position_p_i: (f32, f32),
-    #[builder(default = (1.31, 0.00))]
+    #[builder(default = (1.062, 0.00242))]
     // #[builder(default = (2.62, 0.00002))]
     pub pid_velocity_p_i: (f32, f32),
-    // #[builder(default = (4.879, 0.0571))]
-    #[builder(default = (1.577, 0.1))]
+    #[builder(default = (4.879, 0.0571))]
+    // #[builder(default = (1.577, 0.1))]
     pub pid_torque_p_i: (f32, f32),
-    // #[builder(default = (4.879, 0.0571))]
-    #[builder(default = (1.577, 0.1))]
+    #[builder(default = (4.879, 0.0571))]
+    // #[builder(default = (1.577, 0.1))]
     pub pid_flux_p_i: (f32, f32),
 }

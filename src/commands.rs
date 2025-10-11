@@ -14,7 +14,7 @@ const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 const CLOCK_FREQ: u32 = 24_000_000;
 
 #[klipper_command]
-pub fn get_uptime(_context: &mut crate::State) {
+pub fn get_uptime() {
     let c = Instant::now().as_ticks();
     let clock: u32 = (c & 0xFFFF_FFFF) as u32;
     let high: u32 = (c >> 32) as u32;
@@ -76,8 +76,8 @@ const MCU: &str = "k4671_openffboard";
 #[klipper_constant]
 const STATS_SUMSQ_BASE: u32 = 256;
 
-#[klipper_constant]
-const RECEIVE_WINDOW: u32 = 512;
+// #[klipper_constant]
+// const RECEIVE_WINDOW: u32 = 512;
 
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}

@@ -8,6 +8,7 @@ use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_futures::join::join;
+use embassy_futures::yield_now;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
@@ -20,7 +21,7 @@ use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_sync::watch::Watch;
+use embassy_sync::watch::{Sender, Watch};
 use embassy_time::{Duration, Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
@@ -38,7 +39,7 @@ mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 20>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 128>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
 pub type ProtectedTrSync = CriticalSectionMutex<RefCell<TrSync>>;
 
@@ -340,7 +341,11 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
     // debug!("Send move {}", target_position);
     TMC_CMD
         .sender()
-        .try_send(tmc4671::TMCCommand::Move(target_position, v0, a0))
+        .try_send(tmc4671::TMCCommand::Move(
+            4 * target_position,
+            4.0 * v0,
+            4.0 * a0,
+        ))
         .ok();
     stepper.advance();
 }
@@ -348,6 +353,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
 #[embassy_executor::task]
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
     let mut ticker = tmc4671::TMCTimeIterator::new();
+    ticker.set_period(Duration::from_micros(250));
     loop {
         let ticks = ticker.next();
         // Move processing
@@ -370,12 +376,9 @@ async fn anchor_protocol(
     let mut receiver_buf: RxBuf = RxBuf::new();
     let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
         [0; usb_anchor::MAX_PACKET_SIZE as usize];
-    // let mut ticker = tmc4671::TMCTimeIterator::new();
     info!("Hello Anchor!");
 
     loop {
-        // let ticks = ticker.next();
-
         // Check for commands from Klipper
         let n = pipe.read(&mut rx).await;
         receiver_buf.extend(&rx[..n]);
@@ -388,9 +391,8 @@ async fn anchor_protocol(
                 receiver_buf.pop(consumed);
             }
         }
+        yield_now().await;
     }
-
-    // Timer::at(ticks).await
 }
 
 #[embassy_executor::task]
@@ -570,19 +572,20 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
-    spawner.spawn(blink(r.led).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
+
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
-        spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-        spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
+        spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }

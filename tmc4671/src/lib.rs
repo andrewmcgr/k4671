@@ -20,7 +20,7 @@ use paste::paste;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 200>;
+pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 256>;
 pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
 pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
 pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
@@ -149,6 +149,7 @@ where
     ff_vel: f32,
     ff_torque: f32,
     ff_current: f32,
+    ff_deadband: f32,
     last_pos: i32,
 }
 
@@ -197,6 +198,7 @@ where
             ff_vel: 0.0,
             ff_torque: 0.0,
             ff_current: 0.0,
+            ff_deadband: 0.0,
             last_pos: 0,
         }
     }
@@ -361,14 +363,20 @@ where
             return Ok(());
         }
         // Set motion mode to stopped
-        let _ = self
-            .write_register(ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode))
-            .await;
+        self.write_register(
+            ModeRampModeMotion::default().with_mode_motion(MotionMode::StoppedMode),
+        )
+        .await
+        .ok();
+        // Set positions so we don't move, but last_pos is still valid
+        self.write_register(PidPositionActual::default().with_pid_position_actual(self.last_pos))
+            .await
+            .ok();
         // Enable PWM outputs, don't change pwm_sv
         let pwm_sv_chop = self.read_register::<PwmSvChop>().await?;
-        let _ = self.write_register(pwm_sv_chop.with_pwm_chop(7)).await;
+        self.write_register(pwm_sv_chop.with_pwm_chop(7)).await.ok();
         // Turn on the power stage
-        let _ = self.enable_pin.set_high();
+        self.enable_pin.set_high().ok();
         self.enabled = true;
         Ok(())
     }
@@ -493,9 +501,8 @@ where
         let flux = self.calculate_flux_limit(c);
         self.current_limit = flux;
         trace!("TMC Flux Current Limit: {} A -> {}", c, flux);
-        let _ = self
-            .write_register(PidTorqueFluxLimits::default().with_pid_torque_flux_limits(flux))
-            .await;
+        self.write_register(PidTorqueFluxLimits::default().with_pid_torque_flux_limits(flux))
+            .await?;
         Ok(())
     }
 
@@ -508,7 +515,7 @@ where
         mode: MotionMode,
     ) -> Result<(), FaultDetectionError<I::BusError>> {
         let modereg = self.read_register::<ModeRampModeMotion>().await?;
-        let _ = self.write_register(modereg.with_mode_motion(mode)).await;
+        self.write_register(modereg.with_mode_motion(mode)).await?;
         Ok(())
     }
 
@@ -518,8 +525,7 @@ where
     pid_impl!(position);
 
     pub async fn get_phi_e(&mut self) -> Result<i16, FaultDetectionError<I::BusError>> {
-        let phi_e = self.read_register::<PhiE>().await?;
-        Ok(phi_e.read_phi_e())
+        Ok(self.read_register::<PhiE>().await?.read_phi_e())
     }
 
     pub async fn get_pid_position_actual(
@@ -568,162 +574,138 @@ where
         self.ff_pos = cfg.ff_pos / cfg.n_pole_pairs as f32;
         self.ff_vel = cfg.ff_vel;
         self.ff_torque = cfg.ff_torque;
+        self.ff_deadband = 1.4 * 65536.0 / cfg.abn_decoder_ppr as f32;
 
         self.voltage_scale = cfg.voltage_scale;
         self.voltage_scale_i = round(self.voltage_scale) as u16;
 
         // Static configuration
-        let _ = self
-            .write_register(
-                ConfigAdvancedPiRepresent::default()
-                    .with_config_current_i(true)
-                    .with_config_current_p(false)
-                    .with_config_velocity_i(true)
-                    .with_config_velocity_p(false)
-                    .with_config_position_i(true)
-                    .with_config_position_p(false),
-            )
-            .await;
+        self.write_register(
+            ConfigAdvancedPiRepresent::default()
+                .with_config_current_i(true)
+                .with_config_current_p(false)
+                .with_config_velocity_i(true)
+                .with_config_velocity_p(false)
+                .with_config_position_i(true)
+                .with_config_position_p(false),
+        )
+        .await?;
 
         // Configure the device according to cfg
 
         // Set the PID parameters
-        let _ = self
-            .set_flux_pid(cfg.pid_flux_p_i.0, cfg.pid_flux_p_i.1)
+        self.set_flux_pid(cfg.pid_flux_p_i.0, cfg.pid_flux_p_i.1)
             .await;
-        let _ = self
-            .set_torque_pid(cfg.pid_torque_p_i.0, cfg.pid_torque_p_i.1)
+        self.set_torque_pid(cfg.pid_torque_p_i.0, cfg.pid_torque_p_i.1)
             .await;
-        let _ = self
-            .set_velocity_pid(cfg.pid_velocity_p_i.0, cfg.pid_velocity_p_i.1)
+        self.set_velocity_pid(cfg.pid_velocity_p_i.0, cfg.pid_velocity_p_i.1)
             .await;
-        let _ = self
-            .set_position_pid(cfg.pid_position_p_i.0, cfg.pid_position_p_i.1)
+        self.set_position_pid(cfg.pid_position_p_i.0, cfg.pid_position_p_i.1)
             .await;
 
         // Set PWM modes
-        let _ = self
-            .write_register(
-                PwmBbmHBbmL::default()
-                    .with_pwm_bbm_l(cfg.pwm_bbm_l)
-                    .with_pwm_bbm_h(cfg.pwm_bbm_h),
-            )
-            .await;
-        let _ = self
-            .write_register(
-                PwmSvChop::default()
-                    .with_pwm_sv(cfg.pwm_sv)
-                    .with_pwm_chop(7),
-            )
-            .await;
+        self.write_register(
+            PwmBbmHBbmL::default()
+                .with_pwm_bbm_l(cfg.pwm_bbm_l)
+                .with_pwm_bbm_h(cfg.pwm_bbm_h),
+        )
+        .await?;
+        self.write_register(
+            PwmSvChop::default()
+                .with_pwm_sv(cfg.pwm_sv)
+                .with_pwm_chop(7),
+        )
+        .await?;
         // Set motor parameters
-        let _ = self
-            .write_register(
-                MotorTypeNPolePairs::default()
-                    .with_motor_type(cfg.motor_type)
-                    .with_n_pole_pairs(cfg.n_pole_pairs),
-            )
-            .await;
+        self.write_register(
+            MotorTypeNPolePairs::default()
+                .with_motor_type(cfg.motor_type)
+                .with_n_pole_pairs(cfg.n_pole_pairs),
+        )
+        .await?;
         // Set ADC input config
-        let _ = self
-            .write_register(
-                AdcISelect::default()
-                    .with_adc_i_ux_select(cfg.adc_i_ux_select)
-                    .with_adc_i_v_select(cfg.adc_i_v_select)
-                    .with_adc_i_wy_select(cfg.adc_i_wy_select)
-                    .with_adc_i0_select(cfg.adc_i0_select)
-                    .with_adc_i1_select(cfg.adc_i1_select),
-            )
-            .await;
+        self.write_register(
+            AdcISelect::default()
+                .with_adc_i_ux_select(cfg.adc_i_ux_select)
+                .with_adc_i_v_select(cfg.adc_i_v_select)
+                .with_adc_i_wy_select(cfg.adc_i_wy_select)
+                .with_adc_i0_select(cfg.adc_i0_select)
+                .with_adc_i1_select(cfg.adc_i1_select),
+        )
+        .await?;
         // Set encoder and hall parameters
-        let _ = self
-            .write_register(
-                AencDecoderMode::default()
-                    .with_aenc_deg(cfg.aenc_deg)
-                    .with_aenc_dir(cfg.aenc_dir),
-            )
-            .await;
-        let _ = self
-            .write_register(AencDecoderPpr::default().with_aenc_ppr(cfg.aenc_ppr))
-            .await;
-        let _ = self
-            .write_register(
-                AbnDecoderMode::default()
-                    .with_abn_apol(cfg.abn_apol)
-                    .with_abn_bpol(cfg.abn_bpol)
-                    .with_abn_npol(cfg.abn_npol)
-                    .with_abn_use_abn_as_n(cfg.abn_use_abn_as_n)
-                    .with_abn_cln(cfg.abn_cln)
-                    .with_abn_direction(cfg.abn_direction),
-            )
-            .await;
-        let _ = self
-            .write_register(AbnDecoderPpr::default().with_abn_decoder_ppr(cfg.abn_decoder_ppr))
-            .await;
-        let _ = self
-            .write_register(
-                HallMode::default()
-                    .with_hall_interp(cfg.hall_interp)
-                    .with_hall_sync(cfg.hall_sync)
-                    .with_hall_polarity(cfg.hall_polarity)
-                    .with_hall_dir(cfg.hall_dir)
-                    .with_hall_blank(cfg.hall_blank),
-            )
-            .await;
-        let _ = self
-            .write_register(HallDPhiMax::default().with_hall_dphi_max(cfg.hall_dphi_max))
-            .await;
-        let _ = self
-            .write_register(
-                HallPhiEPhiMOffset::default().with_hall_phi_e_offset(cfg.hall_phi_e_offset),
-            )
-            .await;
+        self.write_register(
+            AencDecoderMode::default()
+                .with_aenc_deg(cfg.aenc_deg)
+                .with_aenc_dir(cfg.aenc_dir),
+        )
+        .await?;
+        self.write_register(AencDecoderPpr::default().with_aenc_ppr(cfg.aenc_ppr))
+            .await?;
+        self.write_register(
+            AbnDecoderMode::default()
+                .with_abn_apol(cfg.abn_apol)
+                .with_abn_bpol(cfg.abn_bpol)
+                .with_abn_npol(cfg.abn_npol)
+                .with_abn_use_abn_as_n(cfg.abn_use_abn_as_n)
+                .with_abn_cln(cfg.abn_cln)
+                .with_abn_direction(cfg.abn_direction),
+        )
+        .await?;
+        self.write_register(AbnDecoderPpr::default().with_abn_decoder_ppr(cfg.abn_decoder_ppr))
+            .await?;
+        self.write_register(
+            HallMode::default()
+                .with_hall_interp(cfg.hall_interp)
+                .with_hall_sync(cfg.hall_sync)
+                .with_hall_polarity(cfg.hall_polarity)
+                .with_hall_dir(cfg.hall_dir)
+                .with_hall_blank(cfg.hall_blank),
+        )
+        .await?;
+        self.write_register(HallDPhiMax::default().with_hall_dphi_max(cfg.hall_dphi_max))
+            .await?;
+        self.write_register(
+            HallPhiEPhiMOffset::default().with_hall_phi_e_offset(cfg.hall_phi_e_offset),
+        )
+        .await?;
         // Set encoder selection
-        let _ = self
-            .write_register(PhiESelection::default().with_phi_e_selection(cfg.phi_e_selection))
-            .await;
-        let _ = self
-            .write_register(
-                PositionSelection::default().with_position_selection(cfg.position_selection),
-            )
-            .await;
-        let _ = self
-            .write_register(
-                VelocitySelection::default()
-                    .with_velocity_selection(cfg.velocity_selection)
-                    .with_velocity_meter_selection(cfg.velocity_meter_selection),
-            )
-            .await;
+        self.write_register(PhiESelection::default().with_phi_e_selection(cfg.phi_e_selection))
+            .await?;
+        self.write_register(
+            PositionSelection::default().with_position_selection(cfg.position_selection),
+        )
+        .await?;
+        self.write_register(
+            VelocitySelection::default()
+                .with_velocity_selection(cfg.velocity_selection)
+                .with_velocity_meter_selection(cfg.velocity_meter_selection),
+        )
+        .await?;
         // Set advanced PID modes and limits
-        let _ = self
-            .write_register(
-                ModeRampModeMotion::default()
-                    .with_mode_pid_smpl(cfg.mode_pid_smpl)
-                    .with_mode_pid_type(cfg.mode_pid_type),
-            )
-            .await;
-        let _ = self
-            .write_register(
-                PidoutUqUdLimits::default().with_pidout_uq_ud_limits(cfg.pidout_uq_ud_limits),
-            )
-            .await;
-        let _ = self
-            .write_register(
-                PidPositionLimitLow::default()
-                    .with_pid_position_limit_low(cfg.pid_position_limit_low),
-            )
-            .await;
-        let _ = self
-            .write_register(
-                PidPositionLimitHigh::default()
-                    .with_pid_position_limit_high(cfg.pid_position_limit_high),
-            )
-            .await;
-        let _ = self
-            .write_register(
-                PidVelocityLimit::default().with_pid_velocity_limit(cfg.pid_velocity_limit),
-            )
-            .await;
+        self.write_register(
+            ModeRampModeMotion::default()
+                .with_mode_pid_smpl(cfg.mode_pid_smpl)
+                .with_mode_pid_type(cfg.mode_pid_type),
+        )
+        .await?;
+        self.write_register(
+            PidoutUqUdLimits::default().with_pidout_uq_ud_limits(cfg.pidout_uq_ud_limits),
+        )
+        .await?;
+        self.write_register(
+            PidPositionLimitLow::default().with_pid_position_limit_low(cfg.pid_position_limit_low),
+        )
+        .await?;
+        self.write_register(
+            PidPositionLimitHigh::default()
+                .with_pid_position_limit_high(cfg.pid_position_limit_high),
+        )
+        .await?;
+        self.write_register(
+            PidVelocityLimit::default().with_pid_velocity_limit(cfg.pid_velocity_limit),
+        )
+        .await?;
 
         // Set the PWM frequency
         let pwmfreq = self.set_pwm_freq(cfg.pwm_freq_target).await?;
@@ -787,7 +769,9 @@ where
             .await?
             .read_pid_position_error();
 
-        self.ff_error = position as f32 * self.ff_pos
+        self.ff_error = (position as f32
+            - (position as f32).clamp(-self.ff_deadband, self.ff_deadband))
+            * self.ff_pos
             + velocity as f32 * self.ff_vel
             + torque as f32 * self.ff_torque;
 
