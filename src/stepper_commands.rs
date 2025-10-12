@@ -1,13 +1,12 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::clock32_to_64;
+use crate::commands::{Clock32, Clock64, CLOCKS_PER_TICK};
 use crate::stepper::Direction;
-use core::ops::{Deref, DerefMut};
-use embassy_time::Instant;
-
 use anchor::*;
+use core::ops::{Deref, DerefMut};
 use defmt::*;
+use embassy_time::Instant;
 
 #[klipper_command]
 pub fn config_stepper(
@@ -67,9 +66,9 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         info!("Reset step clock {} {}", oid, clock);
         context.steppers[*i].lock(|s| {
-            s.borrow_mut().deref_mut().reset_clock(Instant::from_ticks(
-                Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
-            ));
+            s.borrow_mut()
+                .deref_mut()
+                .reset_clock(Instant::from(Clock64::from(clock)));
         });
     } else {
         warn!("No OID match");
@@ -210,7 +209,6 @@ pub fn config_trsync(context: &mut State, oid: u8) {
     }
 }
 
-
 #[klipper_command]
 pub fn trsync_start(
     context: &mut State,
@@ -230,11 +228,11 @@ pub fn trsync_start(
             if t.oid == Some(oid) {
                 info!("TrSync starting for {}", oid);
                 t.report_clock = if report_clock != 0 {
-                    Some(clock32_to_64(report_clock))
+                    Some(Instant::from(Clock64::from(report_clock)))
                 } else {
                     None
                 };
-                t.report_ticks = Some(report_ticks);
+                t.report_ticks = Some(report_ticks / CLOCKS_PER_TICK);
                 t.trigger_reason = 0;
                 t.can_trigger = true;
                 t.expire_reason = expire_reason;
@@ -242,7 +240,7 @@ pub fn trsync_start(
                     oid,
                     if t.can_trigger { 1 } else { 0 },
                     t.trigger_reason,
-                    report_clock,
+                    Clock32::from(report_clock),
                 );
                 crate::TRSYNC_WATCH.dyn_sender().send(1);
                 return true;
@@ -262,7 +260,7 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
             let mut t = t.borrow_mut();
             let t = t.deref_mut();
             if t.oid == Some(oid) {
-                t.timeout_clock = Some(clock32_to_64(clock));
+                t.timeout_clock = Some(Instant::from(Clock64::from(clock)));
                 return true;
             }
             false
@@ -299,7 +297,7 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
                 t.timeout_clock = None;
                 t.report_clock = None;
                 t.report_ticks = None;
-                trsync_report(oid, 0, reason, 0);
+                trsync_report(oid, 0, reason, Clock32::from(0));
                 return true;
             }
             false
@@ -309,13 +307,16 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
     }
 }
 
-pub fn trsync_report(oid: u8, can_trigger: u8, trigger_reason: u8, clock: u32) {
-    info!("TrSync report {} {} {} {}", oid, can_trigger, trigger_reason, clock);
+pub fn trsync_report(oid: u8, can_trigger: u8, trigger_reason: u8, clock: Clock32) {
+    info!(
+        "TrSync report {} {} {} {}",
+        oid, can_trigger, trigger_reason, clock
+    );
     klipper_reply!(
         trsync_state,
         oid: u8,
         can_trigger: u8,
         trigger_reason: u8,
-        clock: u32
+        clock: u32 = u32::from(clock)
     );
 }
