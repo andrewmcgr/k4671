@@ -383,11 +383,9 @@ async fn usb_comms(
     let driver: Driver<'_, peripherals::USB_OTG_FS> =
         Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
-    let in_pipe = usb_anchor::AnchorPipe::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
     let anchor_fut = anchor.run(
         &mut state,
-        &in_pipe,
         &USB_OUT_BUFFER,
         driver,
         steppers,
