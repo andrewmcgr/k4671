@@ -1,27 +1,27 @@
 #![no_std]
 #![no_main]
 
+use cortex_m::peripheral::DCB;
+use cortex_m::peripheral::DWT;
 use cortex_m_rt::entry;
 
 use assign_resources::assign_resources;
+use core::cell::RefCell;
+use core::ops::DerefMut;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
-use embassy_futures::join::join;
 use embassy_futures::yield_now;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
-// use embassy_stm32::timer::qei;
-use core::cell::RefCell;
-use core::ops::DerefMut;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_sync::watch::{Sender, Watch};
+use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 
@@ -32,14 +32,13 @@ use tmc4671::{self, CS, TimeIterator, config::TMC4671Config};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
-// mod spi_passthrough;
 mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::leds::blink;
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 128>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 512>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
 pub type ProtectedTrSync = CriticalSectionMutex<RefCell<TrSync>>;
 
@@ -416,9 +415,17 @@ async fn usb_comms(
     let mut state = usb_anchor::AnchorState::new();
     let in_pipe = usb_anchor::AnchorPipe::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
-    let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
-    let anchor_protocol_fut = anchor_protocol(&in_pipe, steppers, trsync);
-    join(anchor_fut, anchor_protocol_fut).await;
+    let anchor_fut = anchor.run(
+        &mut state,
+        &in_pipe,
+        &USB_OUT_BUFFER,
+        driver,
+        steppers,
+        trsync,
+    );
+    anchor_fut.await;
+    // let anchor_protocol_fut = anchor_protocol(&in_pipe, steppers, trsync);
+    // join(anchor_fut, anchor_protocol_fut).await;
 }
 
 #[derive(Default)]
@@ -435,7 +442,7 @@ pub static LED_STATE: Signal<CS, LedState> = Signal::new();
 
 #[embassy_executor::task]
 async fn tmc_task(r: TmcResources) {
-    info!("Hello TMC!");
+    info!("Hello TMC! {}", DWT::cycle_count());
 
     let mut spi_config = spi::Config::default();
     spi_config.mode = spi::MODE_3;
@@ -550,7 +557,14 @@ fn main() -> ! {
         .init([(); NUM_TRSYNC].map(|_| CriticalSectionMutex::new(RefCell::new(TrSync::new()))));
     let trsync = TRSYNC.init(trsync_pool);
 
-    info!("Hello World!");
+    // Enable the DWT cycle counter.
+    {
+        let mut peripherals = cortex_m::Peripherals::take().unwrap();
+        peripherals.DCB.enable_trace();
+        peripherals.DWT.enable_cycle_counter();
+    }
+
+    info!("Hello World! {}", DWT::cycle_count());
 
     // let _ = ENCODER.init(qei::Qei::new(
     //     r.encoder.timer,

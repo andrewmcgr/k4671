@@ -16,21 +16,21 @@ const CLOCK_FREQ: u32 = 24_000_000;
 #[klipper_command]
 pub fn get_uptime() {
     let c = Instant::now().as_ticks();
-    let clock: u32 = (c & 0xFFFF_FFFF) as u32;
+    let clock: u32 = c as u32;
     let high: u32 = (c >> 32) as u32;
-    debug!("uptime {} {} {}", c, high, clock);
     klipper_reply!(
         uptime,
         high: u32,
         clock: u32
     );
+    debug!("uptime {} {} {}", c, high, clock);
 }
 
 #[klipper_command]
 pub fn get_clock() {
     let c = Instant::now().as_ticks();
+    klipper_reply!(clock, clock: u32 = c as u32);
     debug!("clock {}", c);
-    klipper_reply!(clock, clock: u32 = (c & 0xFFFF_FFFF) as u32);
 }
 
 #[klipper_command]
@@ -48,7 +48,7 @@ pub fn get_config(context: &State) {
         is_config: bool = crc.is_some(),
         crc: u32 = crc.unwrap_or(0),
         is_shutdown: bool = false,
-        move_count: u16 = 2000
+        move_count: u16 = 113
     );
 }
 

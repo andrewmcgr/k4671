@@ -1,8 +1,10 @@
-use crate::LED_STATE;
 use crate::LedState::{Connecting, Error};
+use crate::{KLIPPER_TRANSPORT, LED_STATE};
+use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
+use embassy_futures::yield_now;
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
@@ -70,6 +72,8 @@ impl UsbAnchor {
         in_pipe: &'d AnchorPipe,
         out_pipe: &'d AnchorPipe,
         driver: D,
+        steppers: &'static [crate::ProtectedEmulatedStepper; crate::NUM_STEPPERS],
+        trsync: &'static [crate::ProtectedTrSync; crate::NUM_TRSYNC],
     ) -> !
     where
         D: Driver<'d>,
@@ -100,8 +104,15 @@ impl UsbAnchor {
         let mut device = builder.build();
         loop {
             let run_fut = device.run();
-            let class_fut =
-                self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver, &mut control);
+            let class_fut = self.run_anchor_class(
+                in_pipe,
+                out_pipe,
+                &mut sender,
+                &mut receiver,
+                &mut control,
+                steppers,
+                trsync,
+            );
             join(run_fut, class_fut).await;
         }
     }
@@ -113,6 +124,8 @@ impl UsbAnchor {
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,
         control: &mut ControlChanged<'d>,
+        steppers: &'static [crate::ProtectedEmulatedStepper; crate::NUM_STEPPERS],
+        trsync: &'static [crate::ProtectedTrSync; crate::NUM_TRSYNC],
     ) where
         D: Driver<'d>,
     {
@@ -121,15 +134,20 @@ impl UsbAnchor {
             sender.wait_connection().await;
             loop {
                 let len = out_pipe.read(&mut rx[..]).await;
-                // trace!("Anchor Out {:x}", &rx[..len]);
+                debug!("Anchor Out {:x}", &rx[..len]);
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await;
                 }
+                yield_now().await;
             }
         };
         let mut reciever_fut = async || -> Result<(), Disconnected> {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+            let mut state = crate::State::new(steppers, trsync);
+
+            type RxBuf = FifoBuffer<{ (MAX_PACKET_SIZE * 2) as usize }>;
+            let mut rx_buf: RxBuf = RxBuf::new();
             receiver.wait_connection().await;
             loop {
                 let res = select(
@@ -150,8 +168,15 @@ impl UsbAnchor {
                         continue;
                     }
                 };
-                // trace!("Anchor In {:x}", &reciever_buf[..len]);
-                in_pipe.write_all(&mut reciever_buf[..len]).await;
+                debug!("Anchor In {:x}", &reciever_buf[..len]);
+                rx_buf.extend(&reciever_buf[..len]);
+                if !rx_buf.is_empty() {
+                    let mut wrap = SliceInputBuffer::new(rx_buf.data());
+                    KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
+                    let consumed = rx_buf.len() - wrap.available();
+                    rx_buf.pop(consumed);
+                    yield_now().await;
+                }
             }
         };
 

@@ -20,7 +20,7 @@ use paste::paste;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 256>;
+pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 1024>;
 pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
 pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
 pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
@@ -574,7 +574,7 @@ where
         self.ff_pos = cfg.ff_pos / cfg.n_pole_pairs as f32;
         self.ff_vel = cfg.ff_vel;
         self.ff_torque = cfg.ff_torque;
-        self.ff_deadband = 1.4 * 65536.0 / cfg.abn_decoder_ppr as f32;
+        self.ff_deadband = 0.7 * 65536.0 / cfg.abn_decoder_ppr as f32;
 
         self.voltage_scale = cfg.voltage_scale;
         self.voltage_scale_i = round(self.voltage_scale) as u16;
