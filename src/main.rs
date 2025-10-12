@@ -336,12 +336,13 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
         _ => 0.0,
     };
     // debug!("Send move {}", target_position);
+    const STEP_MULT: i32 = 8;
     TMC_CMD
         .sender()
         .try_send(tmc4671::TMCCommand::Move(
-            4 * target_position,
-            4.0 * v0,
-            4.0 * a0,
+            STEP_MULT * target_position,
+            STEP_MULT as f32 * v0,
+            STEP_MULT as f32 * a0,
         ))
         .ok();
     stepper.advance();

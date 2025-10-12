@@ -84,6 +84,22 @@ impl TimeIterator for TMCTimeIterator {
     }
 }
 
+trait Saturate {
+    fn sat(self, d: f32) -> f32;
+}
+
+impl Saturate for f32 {
+    fn sat(self, d: f32) -> f32 {
+        if self > d {
+            1.0
+        } else if self < -d {
+            -1.0
+        } else {
+            self / d
+        }
+    }
+}
+
 #[derive(Debug, defmt::Format, Copy, Clone)]
 pub enum TMCCommand {
     Enable,
@@ -574,7 +590,7 @@ where
         self.ff_pos = cfg.ff_pos / cfg.n_pole_pairs as f32;
         self.ff_vel = cfg.ff_vel;
         self.ff_torque = cfg.ff_torque;
-        self.ff_deadband = 0.7 * 65536.0 / cfg.abn_decoder_ppr as f32;
+        self.ff_deadband = 16.0 * 65536.0 / cfg.abn_decoder_ppr as f32;
 
         self.voltage_scale = cfg.voltage_scale;
         self.voltage_scale_i = round(self.voltage_scale) as u16;
@@ -731,16 +747,16 @@ where
         Ok(())
     }
 
-    pub async fn read_pid_errors(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
-        let _ = self
-            .write_register(
-                PidErrorAddr::default().with_pid_error_addr(PidError::PidErrorPidFluxError),
-            )
-            .await;
-        let flux = self
-            .read_register::<PidErrorPidFluxError>()
-            .await?
-            .read_pid_flux_error();
+    pub async fn calculate_feedforward(&mut self) -> Result<(), FaultDetectionError<I::BusError>> {
+        // let _ = self
+        //     .write_register(
+        //         PidErrorAddr::default().with_pid_error_addr(PidError::PidErrorPidFluxError),
+        //     )
+        //     .await;
+        // let flux = self
+        //     .read_register::<PidErrorPidFluxError>()
+        //     .await?
+        //     .read_pid_flux_error();
         let _ = self
             .write_register(
                 PidErrorAddr::default().with_pid_error_addr(PidError::PidErrorPidTorqueError),
@@ -759,26 +775,41 @@ where
             .read_register::<PidErrorPidVelocityError>()
             .await?
             .read_pid_velocity_error();
-        let _ = self
-            .write_register(
-                PidErrorAddr::default().with_pid_error_addr(PidError::PidErrorPidPositionError),
-            )
-            .await;
-        let position = self
-            .read_register::<PidErrorPidPositionError>()
-            .await?
-            .read_pid_position_error();
+        // let _ = self
+        //     .write_register(
+        //         PidErrorAddr::default().with_pid_error_addr(PidError::PidErrorPidPositionError),
+        //     )
+        //     .await;
+        // let position = self
+        //     .read_register::<PidErrorPidPositionError>()
+        //     .await?
+        //     .read_pid_position_error();
 
-        self.ff_error = (position as f32
-            - (position as f32).clamp(-self.ff_deadband, self.ff_deadband))
-            * self.ff_pos
-            + velocity as f32 * self.ff_vel
-            + torque as f32 * self.ff_torque;
+        // See https://www.mdpi.com/2076-0825/12/1/31 for details on this feedforward approach
+
+        let posreg = self
+            .read_register::<PidPositionActual>()
+            .await?
+            .read_pid_position_actual();
+        let position = (posreg - self.last_pos) as f32;
+        self.ff_error = (position / self.ff_deadband).sat(0.1) * self.ff_pos
+            + (velocity as f32 / self.ff_deadband).sat(0.1) * self.ff_vel
+            + (torque as f32).sat(0.1) * self.ff_torque;
 
         trace!(
-            "TMC PID Errors: Flux {}, Torque {}, Velocity {}, Position {}, FF {}",
-            flux, torque, velocity, position, self.ff_error
+            "TMC PID Errors: Torque {}, Velocity {}, Position {}, FF {}",
+            torque, velocity, position, self.ff_error
         );
+        if self.enabled {
+            // Apply feedforward from last error
+            let torque_offset = -(self.ff_current_limit * (self.ff_error as i32)) as i32;
+            trace!("TMC Feedforward Torque Offset: {}", torque_offset);
+            self.write_register(
+                PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
+            )
+            .await
+            .ok();
+        }
         Ok(())
     }
 
@@ -993,18 +1024,7 @@ where
                 torque_actual,
                 flux_actual
             );
-            self.read_pid_errors().await.ok();
-
-            if self.enabled {
-                // Apply feedforward from last error
-                torque_offset = -(self.ff_current_limit * (self.ff_error.signum() as i32)) as i32;
-                trace!("TMC Feedforward Torque Offset: {}", torque_offset);
-                self.write_register(
-                    PidTorqueFluxOffset::default().with_pid_torque_offset(torque_offset as i16),
-                )
-                .await
-                .ok();
-            }
+            self.calculate_feedforward().await.ok();
 
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             trace!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
