@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::peripheral::DCB;
 use cortex_m::peripheral::DWT;
 use cortex_m_rt::entry;
 
@@ -11,7 +10,6 @@ use core::ops::DerefMut;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
-use embassy_futures::yield_now;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
@@ -362,35 +360,6 @@ async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPP
             });
         }
         Timer::at(ticks).await
-    }
-}
-
-async fn anchor_protocol(
-    pipe: &usb_anchor::AnchorPipe,
-    steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
-    trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
-) -> ! {
-    let mut state = State::new(steppers, trsync);
-    type RxBuf = FifoBuffer<{ (usb_anchor::MAX_PACKET_SIZE * 2) as usize }>;
-    let mut receiver_buf: RxBuf = RxBuf::new();
-    let mut rx: [u8; usb_anchor::MAX_PACKET_SIZE as usize] =
-        [0; usb_anchor::MAX_PACKET_SIZE as usize];
-    info!("Hello Anchor!");
-
-    loop {
-        // Check for commands from Klipper
-        let n = pipe.read(&mut rx).await;
-        receiver_buf.extend(&rx[..n]);
-        let recv_data = receiver_buf.data();
-        if !recv_data.is_empty() {
-            let mut wrap = SliceInputBuffer::new(recv_data);
-            KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
-            let consumed = recv_data.len() - wrap.available();
-            if consumed > 0 {
-                receiver_buf.pop(consumed);
-            }
-        }
-        yield_now().await;
     }
 }
 
