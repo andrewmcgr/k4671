@@ -20,10 +20,11 @@ use paste::paste;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 1024>;
-pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
-pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
-pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
+const CMD_CHANNEL_SIZE: usize = 512;
+pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, CMD_CHANNEL_SIZE>;
+pub type TMCCommandSender<'a> = channel::Sender<'a, CS, TMCCommand, CMD_CHANNEL_SIZE>;
+pub type TMCCommandReceiver<'a> = channel::Receiver<'a, CS, TMCCommand, CMD_CHANNEL_SIZE>;
+pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 16, 4, 4>;
 pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>;
 pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
 

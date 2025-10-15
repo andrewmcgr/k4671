@@ -1,6 +1,6 @@
 use crate::TMC_CMD;
 use defmt::*;
-use embassy_sync::blocking_mutex::{CriticalSectionMutex};
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_time::{Duration, Instant};
 use heapless::Deque;
 use tmc4671::*;
@@ -20,13 +20,19 @@ impl crate::target_queue::Mutex for MutexWrapper {
     }
 }
 
-
-pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 200>;
+pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 512>;
 
 #[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Direction {
     Forward,
     Backward,
+}
+
+#[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
+pub enum MoveKind {
+    Move,
+    Enable,
+    Disable,
 }
 
 #[derive(Debug, Copy, Clone, defmt::Format)]
@@ -36,6 +42,7 @@ pub struct Move {
     count: u16,
     add: i16,
     direction: Direction,
+    kind: MoveKind,
 }
 
 impl Move {
@@ -78,6 +85,7 @@ impl Move {
             count: self.count - steps,
             add: self.add,
             direction: self.direction,
+            kind: MoveKind::Move,
         }
     }
 }
@@ -96,37 +104,47 @@ impl State {
         if next_step > up_to_time {
             return AdvanceResult::FutureMove;
         }
-        // If the next step is within our window, consume one step
-        self.step(cmd.direction, 1);
-        self.last_step = next_step;
-        let cmd = cmd.advance(1);
-        if cmd.count == 0 {
-            return AdvanceResult::Consumed; // We consumed the entire thing.
-        }
+        match cmd.kind {
+            MoveKind::Enable => {
+                return AdvanceResult::Consumed;
+            }
+            MoveKind::Disable => {
+                return AdvanceResult::Consumed;
+            }
+            MoveKind::Move => {
+                // If the next step is within our window, consume one step
+                self.step(cmd.direction, 1);
+                self.last_step = next_step;
+                let cmd = cmd.advance(1);
+                if cmd.count == 0 {
+                    return AdvanceResult::Consumed; // We consumed the entire thing.
+                }
 
-        // Now see if we can apply more steps
-        let available_time = match up_to_time.checked_duration_since(self.last_step) {
-            Some(t) => t,
-            None => return AdvanceResult::Partial(cmd),
-        };
+                // Now see if we can apply more steps
+                let available_time = match up_to_time.checked_duration_since(self.last_step) {
+                    Some(t) => t,
+                    None => return AdvanceResult::Partial(cmd),
+                };
 
-        let total_time = cmd.total_time();
-        if total_time < available_time {
-            // Apply the full move
-            self.last_step += total_time;
-            self.step(cmd.direction, cmd.count as u32);
-            return AdvanceResult::Consumed;
-        }
+                let total_time = cmd.total_time();
+                if total_time < available_time {
+                    // Apply the full move
+                    self.last_step += total_time;
+                    self.step(cmd.direction, cmd.count as u32);
+                    return AdvanceResult::Consumed;
+                }
 
-        let steps_before = cmd.steps_before_time(available_time);
-        if steps_before == 0 {
-            return AdvanceResult::Partial(cmd); // Fast path: nothing can be applied
+                let steps_before = cmd.steps_before_time(available_time);
+                if steps_before == 0 {
+                    return AdvanceResult::Partial(cmd); // Fast path: nothing can be applied
+                }
+                // Slow path: apply the time and number of steps before `steps_before` and return the
+                // remaining move.
+                self.last_step += cmd.time_after_steps(steps_before);
+                self.step(cmd.direction, steps_before as u32);
+                AdvanceResult::Partial(cmd.advance(steps_before))
+            }
         }
-        // Slow path: apply the time and number of steps before `steps_before` and return the
-        // remaining move.
-        self.last_step += cmd.time_after_steps(steps_before);
-        self.step(cmd.direction, steps_before as u32);
-        AdvanceResult::Partial(cmd.advance(steps_before))
     }
 
     fn step(&mut self, direction: Direction, count: u32) {
@@ -223,8 +241,8 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.state.last_step = time;
     }
 
-    pub fn current_position(&self) -> i32 {
-        self.state.position as i32
+    pub fn set_position(&mut self, position: i32) {
+        self.state.position = position as u32;
     }
 
     pub fn reset_target(&mut self, new_target: u32) {
@@ -291,6 +309,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             count,
             add,
             direction: self.next_direction,
+            kind: MoveKind::Move,
         };
         trace!("ES queue_move {}", cmd);
         if self.queue.push_back(cmd).is_err() {
@@ -323,7 +342,11 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     }
 
     pub fn get_position(&self) -> i32 {
-        self.state.position as i32
+        if let Some(cmd) = &self.current_move {
+            self.state.position.wrapping_sub(cmd.count as u32) as i32
+        } else {
+            self.state.position as i32
+        }
     }
 
     pub fn get_commanded_position(&self) -> i32 {
@@ -337,6 +360,6 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             TMCCommand::Disable
         };
         info!("ES set_enabled {}", cmd);
-        TMC_CMD.sender().try_send(cmd).ok();
+        TMC_CMD.try_send(cmd).ok();
     }
 }

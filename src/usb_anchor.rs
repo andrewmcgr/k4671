@@ -13,6 +13,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, ControlChanged, Receiver, Sender,
 use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
+use heapless::{format, String};
 
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

@@ -1,3 +1,5 @@
+use core::ops::DerefMut;
+
 use anchor::*;
 use defmt::*;
 
@@ -5,7 +7,6 @@ use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
 use embassy_time::{Instant, TICK_HZ};
-
 
 #[klipper_constant]
 const CLOCK_FREQ: u32 = 24_000_000;
@@ -94,7 +95,6 @@ impl From<Instant> for Clock32 {
 #[expect(non_upper_case_globals)]
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
-
 #[klipper_command]
 pub fn get_uptime() {
     let c = u64::from(Clock64::now());
@@ -130,7 +130,7 @@ pub fn get_config(context: &State) {
         is_config: bool = crc.is_some(),
         crc: u32 = crc.unwrap_or(0),
         is_shutdown: bool = false,
-        move_count: u16 = 113
+        move_count: u16 = 400
     );
 }
 
@@ -138,6 +138,15 @@ pub fn get_config(context: &State) {
 pub fn config_reset(context: &mut State) {
     debug!("config_reset");
     context.config_crc = None;
+    // Reset trsync
+    for t in context.trsync.iter() {
+        t.lock(|t| {
+            let mut t = t.borrow_mut();
+            let t = t.deref_mut();
+            t.oid = None;
+            t.stepper_oids.clear();
+        });
+    }
 }
 
 #[klipper_command]
@@ -158,8 +167,8 @@ const MCU: &str = "k4671_openffboard";
 #[klipper_constant]
 const STATS_SUMSQ_BASE: u32 = 256;
 
-// #[klipper_constant]
-// const RECEIVE_WINDOW: u32 = 512;
+#[klipper_constant]
+const RECEIVE_WINDOW: u32 = 256;
 
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
