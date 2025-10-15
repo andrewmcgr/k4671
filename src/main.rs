@@ -187,7 +187,7 @@ impl TrSync {
                     self.timeout_clock = None;
                     self.can_trigger = false;
                     self.trigger_reason = self.expire_reason;
-                    stepper_commands::trsync_report(oid, 0, self.expire_reason, Clock32::from(0));
+                    stepper_commands::trsync_report(oid, 0, self.trigger_reason, Clock32::from(0));
                     // rv = None;
                 } else {
                     if tc < rv {
@@ -332,17 +332,15 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
 
 #[embassy_executor::task]
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
-    let mut ticker = tmc4671::TMCTimeIterator::new();
-    ticker.set_period(Duration::from_micros(250));
     loop {
-        let ticks = ticker.next();
+        let ticks = Instant::now() + Duration::from_millis(2);
         // Move processing
         for stepper in steppers.iter() {
             stepper.lock(|s| {
                 process_moves(s.borrow_mut().deref_mut(), ticks);
             });
         }
-        Timer::at(ticks).await
+        Timer::after_micros(1440).await
     }
 }
 
@@ -482,13 +480,13 @@ fn main() -> ! {
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
 
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
     spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV

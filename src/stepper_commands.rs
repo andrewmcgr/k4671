@@ -232,6 +232,7 @@ pub fn trsync_start(
         "TrSync start {} {} {} {}",
         oid, report_clock, report_ticks, expire_reason
     );
+    let mut wake: bool = false;
     for t in context.trsync.iter() {
         if t.lock(|t| -> bool {
             let mut t = t.borrow_mut();
@@ -253,7 +254,7 @@ pub fn trsync_start(
                     t.trigger_reason,
                     Clock32::from(report_clock),
                 );
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
+                wake = true;
                 return true;
             }
             false
@@ -261,11 +262,15 @@ pub fn trsync_start(
             return;
         };
     }
+    if wake {
+        crate::TRSYNC_WATCH.dyn_sender().send(1);
+    }
 }
 
 #[klipper_command]
 pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
     info!("TrSync set timeout {} {}", oid, clock);
+    let mut wake: bool = false;
     for t in context.trsync.iter() {
         if t.lock(|t| -> bool {
             let mut t = t.borrow_mut();
@@ -273,13 +278,16 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
             if t.oid == Some(oid) {
                 t.timeout_clock = Some(Instant::from(Clock64::from(clock)));
                 // Wake the trsync task to recheck timeouts
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
+                wake = true;
                 return true;
             }
             false
         }) {
             return;
         };
+    }
+    if wake {
+        crate::TRSYNC_WATCH.dyn_sender().send(1);
     }
 }
 
