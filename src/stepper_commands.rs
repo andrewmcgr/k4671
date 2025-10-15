@@ -1,7 +1,7 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::commands::{CLOCKS_PER_TICK, Clock32, Clock64};
+use crate::commands::{Clock32, Clock64, CLOCKS_PER_TICK};
 use crate::stepper::Direction;
 use anchor::*;
 use core::ops::{Deref, DerefMut};
@@ -21,24 +21,13 @@ pub fn config_stepper(
         "Config Stepper {} {} {} {} {}",
         oid, _step_pin, _dir_pin, _invert_step, _step_pulse_ticks
     );
-    for t in context.trsync.iter() {
-        t.lock(|t| {
-            let mut t = t.borrow_mut();
-            let t = t.deref_mut();
-            t.oid = None;
-            t.stepper_oids.clear();
-        });
-    }
 
     for i in 0..context.steppers.len() {
-        if context.steppers[i].lock(|s| s.borrow_mut().deref().stepper_oid.is_none()) {
-            context.steppers[i].lock(|s| {
-                s.borrow_mut().deref_mut().set_position(0);
-            });
+        if context.steppers[i].lock(|s| s.borrow().deref().stepper_oid.is_some()) {
+            continue;
+        } else {
             context.steppers_by_oid.insert(oid, i).ok();
             break;
-        } else {
-            continue;
         }
     }
 }
@@ -272,8 +261,6 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
             let t = t.deref_mut();
             if t.oid == Some(oid) {
                 t.timeout_clock = Some(Instant::from(Clock64::from(clock)));
-                // Wake the trsync task to recheck timeouts
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
                 return true;
             }
             false
