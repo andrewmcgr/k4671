@@ -69,6 +69,7 @@ impl UsbAnchor {
     pub async fn run<'d, D>(
         &'d mut self,
         state: &'d mut AnchorState<'d>,
+        in_pipe: &'d AnchorPipe,
         out_pipe: &'d AnchorPipe,
         driver: D,
         steppers: &'static [crate::ProtectedEmulatedStepper; crate::NUM_STEPPERS],
@@ -104,6 +105,7 @@ impl UsbAnchor {
         loop {
             let run_fut = device.run();
             let class_fut = self.run_anchor_class(
+                in_pipe,
                 out_pipe,
                 &mut sender,
                 &mut receiver,
@@ -117,6 +119,7 @@ impl UsbAnchor {
 
     async fn run_anchor_class<'d, D>(
         &mut self,
+        in_pipe: &'d AnchorPipe,
         out_pipe: &'d AnchorPipe,
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,

@@ -992,6 +992,7 @@ where
     // Run device. Never returns.
     pub async fn run(&mut self) -> ! {
         let mut ticker = TMCTimeIterator::new();
+        let mut torque_offset: i32;
 
         loop {
             let pos_actual = self.get_pid_position_actual().await.unwrap();
