@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use cortex_m::peripheral::DWT;
 use cortex_m_rt::entry;
 
 use assign_resources::assign_resources;
@@ -33,7 +34,6 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{Clock32, Clock64};
 use crate::leds::blink;
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 512>;
@@ -103,6 +103,16 @@ klipper_enumeration!(
     }
 );
 
+pub fn clock32_to_64(clock32: u32) -> Instant {
+    let now_ticks = Instant::now().as_ticks();
+    let diff = (now_ticks as u32).wrapping_sub(clock32) as u32;
+    Instant::from_ticks(if diff & 0x8000_0000 != 0 {
+        now_ticks + 0x1_0000_0000 - diff as u64
+    } else {
+        now_ticks - diff as u64
+    })
+}
+
 #[derive(Debug, Default)]
 pub struct TrSync {
     oid: Option<u8>,
@@ -162,7 +172,7 @@ impl TrSync {
                     oid,
                     if self.can_trigger { 1 } else { 0 },
                     self.trigger_reason,
-                    Clock32::now(),
+                    now.as_ticks() as u32,
                 );
             } else {
                 if let Some(next) = self.report_clock {
@@ -185,7 +195,7 @@ impl TrSync {
                 self.timeout_clock = None;
                 self.can_trigger = false;
                 self.trigger_reason = self.expire_reason;
-                stepper_commands::trsync_report(oid, 0, self.expire_reason, Clock32::from(0));
+                stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
                 // rv = None;
             } else {
                 if let Some(next) = self.timeout_clock {
@@ -292,11 +302,16 @@ pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
+    // static mut LAST_POS: i32 = 0;
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
         position_2: c2,
     } = stepper.target_queue.get_for_control(next_time);
+    // if target_position != unsafe { LAST_POS } {
+    //     trace!("Target pos {} {}", target_position, next_time.as_ticks());
+    //     unsafe { LAST_POS = target_position };
+    // }
 
     let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
     let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
@@ -369,8 +384,16 @@ async fn usb_comms(
         Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
-    let anchor_fut = anchor.run(&mut state, &USB_OUT_BUFFER, driver, steppers, trsync);
+    let anchor_fut = anchor.run(
+        &mut state,
+        &USB_OUT_BUFFER,
+        driver,
+        steppers,
+        trsync,
+    );
     anchor_fut.await;
+    // let anchor_protocol_fut = anchor_protocol(&in_pipe, steppers, trsync);
+    // join(anchor_fut, anchor_protocol_fut).await;
 }
 
 #[derive(Default)]
@@ -387,7 +410,7 @@ pub static LED_STATE: Signal<CS, LedState> = Signal::new();
 
 #[embassy_executor::task]
 async fn tmc_task(r: TmcResources) {
-    info!("Hello TMC!");
+    info!("Hello TMC! {}", DWT::cycle_count());
 
     let mut spi_config = spi::Config::default();
     spi_config.mode = spi::MODE_3;
@@ -398,12 +421,15 @@ async fn tmc_task(r: TmcResources) {
     let spi_bus = usb_anchor::AnchorMutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
     let enable = Output::new(r.enable, Level::High, Speed::VeryHigh);
+    // let flag = Input::new(r.flag, Pull::Up);
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
     let mut tmc = tmc4671::TMC4671Async::new_spi(
         spi_dev,
         TMC_CMD.dyn_receiver(),
+        // TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
         enable,
+        // flag,
         brake,
     );
     LED_STATE.signal(LedState::Error);
@@ -432,6 +458,33 @@ unsafe fn UART4() {
 unsafe fn UART5() {
     EXECUTOR_MED.on_interrupt()
 }
+
+// type OnceLockQei = OnceLock<qei::Qei<'static, TIM3>>;
+// static ENCODER: OnceLockQei = OnceLockQei::new();
+
+// #[embassy_executor::task]
+// async fn encoder_mon() {
+//     TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
+//     let mut old_pos = 0;
+//     loop {
+// let pos = ENCODER.get().await.count();
+// let pos = if pos > 32768 {
+//     (pos as i32) - 65536
+// } else {
+//     pos as i32
+// };
+//         let pos = pos * 256;
+//         let dpos = (pos - old_pos) as f32;
+//         old_pos = pos;
+
+//         // info!("Encoder pos {}", pos);
+//         TMC_CMD
+//             .dyn_sender()
+//             .send(tmc4671::TMCCommand::Move(pos, dpos / 0.03, 0.0))
+//             .await;
+//         Timer::after_millis(10).await;
+//     }
+// }
 
 #[entry]
 fn main() -> ! {
@@ -472,7 +525,20 @@ fn main() -> ! {
         .init([(); NUM_TRSYNC].map(|_| CriticalSectionMutex::new(RefCell::new(TrSync::new()))));
     let trsync = TRSYNC.init(trsync_pool);
 
-    info!("Hello World!");
+    // Enable the DWT cycle counter.
+    {
+        let mut peripherals = cortex_m::Peripherals::take().unwrap();
+        peripherals.DCB.enable_trace();
+        peripherals.DWT.enable_cycle_counter();
+    }
+
+    info!("Hello World! {}", DWT::cycle_count());
+
+    // let _ = ENCODER.init(qei::Qei::new(
+    //     r.encoder.timer,
+    //     qei::QeiPin::new(r.encoder.enc_a),
+    //     qei::QeiPin::new(r.encoder.enc_b),
+    // ));
 
     /*
     STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
@@ -488,13 +554,14 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
@@ -502,6 +569,5 @@ fn main() -> ! {
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(blink(r.led).expect("Spawn failure"));
-        spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
     });
 }
