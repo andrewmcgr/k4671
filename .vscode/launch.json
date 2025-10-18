@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "${defaultBuildTask}",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "probe_rs Executable Test",
+            "flashingConfig": {
+                "flashingEnabled": true,
+            },
+            "chip": "STM32F407VG",
+            "coreConfigs": [
+                {
+                    "programBinary": "target/thumbv7em-none-eabi/release/k4671",
+                    "coreIndex": 0,
+                    "rttEnabled": true
+                }
+            ]
+        }
+    ]
+}

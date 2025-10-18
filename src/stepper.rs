@@ -1,4 +1,4 @@
-use crate::TMC_CMD;
+use crate::{clock32_to_64, TMC_CMD};
 use defmt::*;
 use embassy_sync::blocking_mutex::{CriticalSectionMutex};
 use embassy_time::{Duration, Instant};
@@ -231,6 +231,10 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.reset_target = Some(new_target);
     }
 
+    pub fn need_advance(&self) -> bool {
+        self.target_time.need_advance()
+    }
+
     pub fn advance(&mut self) {
         let callbacks = &mut self.target_queue;
         if let Some(reset_target) = self.reset_target.take() {
@@ -286,6 +290,11 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     }
 
     pub fn queue_move(&mut self, interval: u32, count: u16, add: i16) -> bool {
+        if count == 1 && !self.has_moves() {
+            // Don't queue a move, but set up for real moves
+            self.reset_clock(clock32_to_64(interval));
+            return true;
+        }
         let cmd = Move {
             interval,
             count,

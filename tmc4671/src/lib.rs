@@ -41,6 +41,7 @@ const VM_RANGE: u16 = round(32767.0 / 1.25) as u16;
 pub trait TimeIterator {
     fn next(&mut self) -> Instant;
     fn advance(&mut self) -> Instant;
+    fn need_advance(&self) -> bool;
 }
 
 #[derive(Debug, defmt::Format)]
@@ -73,6 +74,11 @@ impl TimeIterator for TMCTimeIterator {
         self.next
     }
 
+    fn need_advance(&self) -> bool {
+        self.next < Instant::now()
+    }
+
+    // TODO: There has to be a better way to do this...
     fn next(&mut self) -> Instant {
         loop {
             if self.next >= Instant::now() {
@@ -992,7 +998,7 @@ where
     // Run device. Never returns.
     pub async fn run(&mut self) -> ! {
         let mut ticker = TMCTimeIterator::new();
-        let mut torque_offset: i32;
+        // let mut torque_offset: i32;
 
         loop {
             let pos_actual = self.get_pid_position_actual().await.unwrap();

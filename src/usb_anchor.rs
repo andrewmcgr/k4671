@@ -119,7 +119,7 @@ impl UsbAnchor {
 
     async fn run_anchor_class<'d, D>(
         &mut self,
-        in_pipe: &'d AnchorPipe,
+        _in_pipe: &'d AnchorPipe,
         out_pipe: &'d AnchorPipe,
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,

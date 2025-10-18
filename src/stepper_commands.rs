@@ -1,8 +1,8 @@
-use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
 use crate::clock32_to_64;
 use crate::stepper::Direction;
+use crate::{LED_STATE, TrSync};
 use core::ops::{Deref, DerefMut};
 use embassy_time::Instant;
 
@@ -175,20 +175,31 @@ klipper_enumeration! {
     }
 }
 
+macro_rules! with_trsync_oid {
+    ($context:expr, $oid:expr, $body:expr) => {
+        for t in $context.trsync.iter() {
+            if t.lock(|t| -> bool {
+                let mut t = t.borrow_mut();
+                let t = t.deref_mut();
+                if t.oid == Some($oid) {
+                    $body(t);
+                    return true;
+                }
+                false
+            }) {
+                break;
+            };
+        }
+    };
+}
+
 #[klipper_command]
 pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, trsync_oid: u8) {
     info!("Stepper stop on trigger {} {}", oid, trsync_oid);
-    for t in context.trsync.iter() {
-        t.lock(|t| {
-            let mut t = t.borrow_mut();
-            let t = t.deref_mut();
-            if t.oid == Some(trsync_oid) {
-                info!("Stepper {} registered for TrSync {}", oid, trsync_oid);
-                t.stepper_oids.push(oid).ok();
-                return;
-            }
-        });
-    }
+    with_trsync_oid!(context, trsync_oid, |t: &mut TrSync| {
+        info!("Stepper {} registered for TrSync {}", oid, trsync_oid);
+        t.stepper_oids.push(oid).ok();
+    });
 }
 
 #[klipper_command]
@@ -205,11 +216,10 @@ pub fn config_trsync(context: &mut State, oid: u8) {
             }
             false
         }) {
-            return;
+            break;
         }
     }
 }
-
 
 #[klipper_command]
 pub fn trsync_start(
@@ -223,65 +233,40 @@ pub fn trsync_start(
         "TrSync start {} {} {} {}",
         oid, report_clock, report_ticks, expire_reason
     );
-    for t in context.trsync.iter() {
-        if t.lock(|t| -> bool {
-            let mut t = t.borrow_mut();
-            let t = t.deref_mut();
-            if t.oid == Some(oid) {
-                info!("TrSync starting for {}", oid);
-                t.report_clock = if report_clock != 0 {
-                    Some(clock32_to_64(report_clock))
-                } else {
-                    None
-                };
-                t.report_ticks = Some(report_ticks);
-                t.trigger_reason = 0;
-                t.can_trigger = true;
-                t.expire_reason = expire_reason;
-                trsync_report(
-                    oid,
-                    if t.can_trigger { 1 } else { 0 },
-                    t.trigger_reason,
-                    report_clock,
-                );
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
-                return true;
-            }
-            false
-        }) {
-            return;
+    with_trsync_oid!(context, oid, |t: &mut TrSync| {
+        info!("TrSync starting for {}", oid);
+        t.report_clock = if report_clock != 0 {
+            Some(clock32_to_64(report_clock))
+        } else {
+            None
         };
-    }
+        t.report_ticks = Some(report_ticks);
+        t.trigger_reason = 0;
+        t.can_trigger = true;
+        t.expire_reason = expire_reason;
+        trsync_report(
+            oid,
+            if t.can_trigger { 1 } else { 0 },
+            t.trigger_reason,
+            report_clock,
+        );
+        crate::TRSYNC_WATCH.dyn_sender().send(1);
+    });
 }
 
 #[klipper_command]
 pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
     info!("TrSync set timeout {} {}", oid, clock);
-    for t in context.trsync.iter() {
-        if t.lock(|t| -> bool {
-            let mut t = t.borrow_mut();
-            let t = t.deref_mut();
-            if t.oid == Some(oid) {
-                t.timeout_clock = Some(clock32_to_64(clock));
-                return true;
-            }
-            false
-        }) {
-            return;
-        };
-    }
+    with_trsync_oid!(context, oid, |t: &mut TrSync| {
+        t.timeout_clock = Some(clock32_to_64(clock));
+    });
 }
 
 #[klipper_command]
 pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
     info!("TrSync trigger {} {}", oid, reason);
 
-    for t in context.trsync.iter() {
-        if t.lock(|t| -> bool {
-            let mut t = t.borrow_mut();
-            let t = t.deref_mut();
-            info!("TrSync check oid {:?} for {}", t.oid, oid);
-            if t.oid == Some(oid) {
+    with_trsync_oid!(context, oid, |t: &mut TrSync| {
                 for i in t.stepper_oids.drain(..) {
                     if let Some(si) = context.steppers_by_oid.get(&i) {
                         info!("Stopping stepper {} for TrSync {}", i, oid);
@@ -300,17 +285,14 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
                 t.report_clock = None;
                 t.report_ticks = None;
                 trsync_report(oid, 0, reason, 0);
-                return true;
-            }
-            false
-        }) {
-            return;
-        };
-    }
+            });
 }
 
 pub fn trsync_report(oid: u8, can_trigger: u8, trigger_reason: u8, clock: u32) {
-    info!("TrSync report {} {} {} {}", oid, can_trigger, trigger_reason, clock);
+    info!(
+        "TrSync report {} {} {} {}",
+        oid, can_trigger, trigger_reason, clock
+    );
     klipper_reply!(
         trsync_state,
         oid: u8,

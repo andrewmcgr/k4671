@@ -182,27 +182,31 @@ impl TrSync {
                 }
             }
         }
-        if self.can_trigger && self.timeout_clock.is_some() {
-            info!(
-                "TrSync check {} now {} timeout {}",
-                oid,
-                now.as_ticks(),
-                self.timeout_clock.unwrap().as_ticks()
-            );
-            if now > self.timeout_clock.unwrap() {
-                info!("TrSync timeout {} now {}", oid, now.as_ticks());
-                // Timer has expired
-                self.timeout_clock = None;
-                self.can_trigger = false;
-                self.trigger_reason = self.expire_reason;
-                stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
-                // rv = None;
-            } else {
-                if let Some(next) = self.timeout_clock {
-                    if next < rv {
-                        rv = next;
+        if let Some(timeout_clock) = self.timeout_clock {
+            if self.can_trigger {
+                info!(
+                    "TrSync check {} now {} timeout {}",
+                    oid,
+                    now.as_ticks(),
+                    timeout_clock.as_ticks()
+                );
+                if now > timeout_clock {
+                    info!("TrSync timeout {} now {}", oid, now.as_ticks());
+                    // Timer has expired
+                    self.timeout_clock = None;
+                    self.can_trigger = false;
+                    self.trigger_reason = self.expire_reason;
+                    stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
+                    // rv = None;
+                } else {
+                    if let Some(next) = self.timeout_clock {
+                        if next < rv {
+                            rv = next;
+                        }
                     }
                 }
+            } else {
+                self.timeout_clock = None;
             }
         }
         info!("TrSync done {} returns {}", oid, rv);
@@ -263,7 +267,7 @@ async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
     loop {
         // Wait for something to do
         receiver.changed_and(|v| *v > 0).await;
-        info!("TrSync wake");
+        info!("TrSync wake {}", Instant::now().as_ticks() as u32);
         loop {
             let mut ticks = Instant::MAX;
 
@@ -302,16 +306,11 @@ pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
-    // static mut LAST_POS: i32 = 0;
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
         position_2: c2,
     } = stepper.target_queue.get_for_control(next_time);
-    // if target_position != unsafe { LAST_POS } {
-    //     trace!("Target pos {} {}", target_position, next_time.as_ticks());
-    //     unsafe { LAST_POS = target_position };
-    // }
 
     let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
     let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
@@ -335,7 +334,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
         }
         _ => 0.0,
     };
-    // debug!("Send move {}", target_position);
+
     const STEP_MULT: i32 = 8;
     TMC_CMD
         .sender()
@@ -345,13 +344,15 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
             STEP_MULT as f32 * a0,
         ))
         .ok();
-    stepper.advance();
+    if stepper.need_advance() {
+        stepper.advance();
+    }
 }
 
 #[embassy_executor::task]
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
     let mut ticker = tmc4671::TMCTimeIterator::new();
-    ticker.set_period(Duration::from_micros(250));
+    ticker.set_period(Duration::from_micros(100));
     loop {
         let ticks = ticker.next();
         // Move processing
@@ -380,7 +381,7 @@ async fn usb_comms(
     Timer::after_millis(100).await;
     info!("Hello USB!");
 
-    let driver: Driver<'_, peripherals::USB_OTG_FS> =
+    let driver =
         Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
     let in_pipe = usb_anchor::AnchorPipe::new();
@@ -556,20 +557,19 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
-
+    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
+        spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
         spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
