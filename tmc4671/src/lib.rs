@@ -53,7 +53,7 @@ pub struct TMCTimeIterator {
 impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
-            next: Instant::now(),
+            next: Instant::now() + Duration::from_hz(25000),
             advance: Duration::from_hz(25000),
         }
     }
@@ -64,7 +64,9 @@ impl TMCTimeIterator {
     }
 
     pub fn set_period(&mut self, t: Duration) {
+        self.next -= self.advance;
         self.advance = t;
+        self.next += t;
     }
 }
 

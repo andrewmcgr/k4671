@@ -197,7 +197,6 @@ impl TrSync {
                     self.can_trigger = false;
                     self.trigger_reason = self.expire_reason;
                     stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
-                    // rv = None;
                 } else {
                     if let Some(next) = self.timeout_clock {
                         if next < rv {
@@ -262,11 +261,10 @@ impl TransportOutput for BufferTransportOutput {
 #[embassy_executor::task]
 async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
     let mut receiver = TRSYNC_WATCH.receiver().unwrap();
-    let sender = TRSYNC_WATCH.sender();
 
     loop {
         // Wait for something to do
-        receiver.changed_and(|v| *v > 0).await;
+        receiver.changed().await;
         info!("TrSync wake {}", Instant::now().as_ticks() as u32);
         loop {
             let mut ticks = Instant::MAX;
@@ -293,7 +291,6 @@ async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
             } else {
                 // Nothing to do, go back to sleep
                 info!("TrSync idle");
-                sender.send(0);
                 break;
             }
         }
@@ -381,8 +378,7 @@ async fn usb_comms(
     Timer::after_millis(100).await;
     info!("Hello USB!");
 
-    let driver =
-        Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
+    let driver = Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
     let in_pipe = usb_anchor::AnchorPipe::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
@@ -557,19 +553,20 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
-    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
+
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
         spawner.spawn(blink(r.led).expect("Spawn failure"));
     });
 }
