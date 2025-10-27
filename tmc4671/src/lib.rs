@@ -20,7 +20,7 @@ use paste::paste;
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 1024>;
+pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 128>;
 pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
 pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
 pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
@@ -107,6 +107,7 @@ pub enum TMCCommand {
     // SpiSend([u8; 5]),
     // SpiTransfer([u8; 5]),
     Move(i32, f32, f32),
+    Stop,
 }
 
 #[derive(Debug, defmt::Format, Copy, Clone)]
@@ -1041,6 +1042,12 @@ where
                         debug!("TMC Command {}", cmd);
                         self.set_motion_mode(MotionMode::StoppedMode).await.ok();
                         self.disable_motor().await.ok();
+                    }
+                    TMCCommand::Stop => {
+                        debug!("TMC Command {}", cmd);
+                        while let Some(_) = self.command_rx.try_receive().ok() {
+                            // Drain any pending commands
+                        }
                     }
                     TMCCommand::Move(pos, _vel, _accel) => {
                         if self.last_pos != pos {

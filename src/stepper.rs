@@ -1,6 +1,6 @@
 use crate::TMC_CMD;
 use defmt::*;
-use embassy_sync::blocking_mutex::{CriticalSectionMutex};
+use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_time::{Duration, Instant};
 use heapless::Deque;
 use tmc4671::*;
@@ -19,7 +19,6 @@ impl crate::target_queue::Mutex for MutexWrapper {
         inner.lock(f)
     }
 }
-
 
 pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 200>;
 
@@ -304,6 +303,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.queue.clear();
         self.target_queue.clear();
         self.current_move = None;
+        TMC_CMD.sender().try_send(TMCCommand::Stop).ok();
     }
 
     pub fn set_next_dir(&mut self, dir: Direction) {

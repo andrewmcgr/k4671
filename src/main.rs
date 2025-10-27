@@ -10,6 +10,7 @@ use core::ops::DerefMut;
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
+use embassy_futures::select::select;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
@@ -34,7 +35,7 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::leds::blink;
+use crate::leds::{blink_errled, blink_focled, blink_led};
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 512>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
@@ -59,11 +60,11 @@ bind_interrupts!(struct Irqs {
 });
 
 assign_resources! {
-    led: LedResources {
-        led: PD7,
-        focled: PE0,
-        errled: PE1,
-    }
+    // led: LedResources {
+    //     led: PD7,
+    //     focled: PE0,
+    //     errled: PE1,
+    // }
     tmc: TmcResources {
         miso: PA6,
         mosi: PA7,
@@ -151,29 +152,35 @@ impl TrSync {
                 report_clock.as_ticks()
             );
             if now >= report_clock {
-                // Timer has expired
-                if let Some(ticks) = self.report_ticks {
-                    info!(
-                        "TrSync report {} now {} ticks {}",
-                        oid,
-                        now.as_ticks(),
-                        ticks
-                    );
-                    let next = report_clock + Duration::from_ticks(ticks as u64);
-                    self.report_clock = Some(next);
-                    if next < rv {
-                        rv = next;
-                    }
-                } else {
-                    info!("TrSync report {} now {} ticks None", oid, now.as_ticks());
-                    self.report_clock = None;
-                }
                 stepper_commands::trsync_report(
                     oid,
                     if self.can_trigger { 1 } else { 0 },
                     self.trigger_reason,
                     now.as_ticks() as u32,
                 );
+                // Timer has expired
+                if let Some(ticks) = self.report_ticks {
+                    if ticks > 0 {
+                        info!(
+                            "TrSync report {} now {} ticks {}",
+                            oid,
+                            now.as_ticks(),
+                            ticks
+                        );
+                        let mut next = report_clock;
+                        while next < now {
+                            next += Duration::from_ticks(ticks as u64);
+                        }
+                        self.report_clock = Some(next);
+                        if next < rv {
+                            rv = next;
+                        }
+                    } else {
+                        info!("TrSync report {} now {} ticks None", oid, now.as_ticks());
+                        self.report_clock = None;
+                        self.report_ticks = None;
+                    }
+                }
             } else {
                 if let Some(next) = self.report_clock {
                     if next < rv {
@@ -207,6 +214,43 @@ impl TrSync {
         }
         info!("TrSync done {} returns {}", oid, rv);
         return if rv == Instant::MAX { None } else { Some(rv) };
+    }
+}
+
+#[embassy_executor::task]
+async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
+    let mut receiver = TRSYNC_WATCH.receiver().unwrap();
+    let sender = TRSYNC_WATCH.sender();
+    let mut ticks = Instant::MAX;
+
+    loop {
+        // Wait for something to do
+        select(receiver.changed_and(|v| *v > 0), Timer::at(ticks)).await;
+
+        info!("TrSync wake");
+        for t in trsync.iter() {
+            t.lock(|t| {
+                let mut t = t.borrow_mut();
+                let t = t.deref_mut();
+                trace!("TrSync processing {}", t.oid);
+                if let Some(oid) = t.oid {
+                    if let Some(time) = t.process_trsync(oid)
+                        && time < ticks
+                    {
+                        info!("TrSync next candidate {} at {}", oid, time.as_ticks());
+                        ticks = time;
+                    }
+                }
+            });
+        }
+
+        if ticks != Instant::MAX {
+            info!("TrSync next at {}", ticks.as_ticks());
+        } else {
+            // Nothing to do, go back to sleep
+            info!("TrSync idle");
+            sender.send(0);
+        }
     }
 }
 
@@ -255,53 +299,12 @@ impl TransportOutput for BufferTransportOutput {
     }
 }
 
-#[embassy_executor::task]
-async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
-    let mut receiver = TRSYNC_WATCH.receiver().unwrap();
-    let sender = TRSYNC_WATCH.sender();
-
-    loop {
-        // Wait for something to do
-        receiver.changed_and(|v| *v > 0).await;
-        info!("TrSync wake");
-        loop {
-            let mut ticks = Instant::MAX;
-
-            for t in trsync.iter() {
-                t.lock(|t| {
-                    let mut t = t.borrow_mut();
-                    let t = t.deref_mut();
-                    trace!("TrSync processing {}", t.oid);
-                    if let Some(oid) = t.oid {
-                        if let Some(time) = t.process_trsync(oid)
-                            && time < ticks
-                        {
-                            info!("TrSync next candidate {} at {}", oid, time.as_ticks());
-                            ticks = time;
-                        }
-                    }
-                });
-            }
-
-            if ticks != Instant::MAX {
-                info!("TrSync next at {}", ticks.as_ticks());
-                Timer::at(ticks).await
-            } else {
-                // Nothing to do, go back to sleep
-                info!("TrSync idle");
-                sender.send(0);
-                break;
-            }
-        }
-    }
-}
-
 pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput;
 
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
-fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
+fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tmc4671::TMCCommand> {
     // static mut LAST_POS: i32 = 0;
     let crate::target_queue::ControlOutput {
         position: target_position,
@@ -337,28 +340,28 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) {
     };
     // debug!("Send move {}", target_position);
     const STEP_MULT: i32 = 8;
-    TMC_CMD
-        .sender()
-        .try_send(tmc4671::TMCCommand::Move(
-            STEP_MULT * target_position,
-            STEP_MULT as f32 * v0,
-            STEP_MULT as f32 * a0,
-        ))
-        .ok();
     stepper.advance();
+    Some(tmc4671::TMCCommand::Move(
+        STEP_MULT * target_position,
+        STEP_MULT as f32 * v0,
+        STEP_MULT as f32 * a0,
+    ))
 }
 
 #[embassy_executor::task]
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
     let mut ticker = tmc4671::TMCTimeIterator::new();
+    let sender = TMC_CMD.sender();
     ticker.set_period(Duration::from_micros(250));
     loop {
         let ticks = ticker.next();
         // Move processing
         for stepper in steppers.iter() {
-            stepper.lock(|s| {
-                process_moves(s.borrow_mut().deref_mut(), ticks);
-            });
+            if let Some(cmd) = stepper.lock(|s| -> Option<tmc4671::TMCCommand> {
+                process_moves(s.borrow_mut().deref_mut(), ticks)
+            }) {
+                sender.send(cmd).await;
+            }
         }
         Timer::at(ticks).await
     }
@@ -377,7 +380,7 @@ async fn usb_comms(
     // Enable VBUS detection, OpenFFBoard requires it.
     config.vbus_detection = true;
 
-    Timer::after_millis(100).await;
+    // Timer::after_millis(100).await;
     info!("Hello USB!");
 
     let driver: Driver<'_, peripherals::USB_OTG_FS> =
@@ -549,20 +552,20 @@ fn main() -> ! {
     vector would work exactly the same.
     */
 
+    // Medium-priority executor: UART5, priority level 7
+    interrupt::UART5.set_priority(Priority::P7);
+    let spawner = EXECUTOR_MED.start(interrupt::UART5);
+    // spawner.spawn(encoder_mon().expect("Spawn failure"));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(blink_focled().expect("Spawn failure"));
+
     /*
     High-priority executor: UART4, priority level 6
     TMC control code goes here.
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
-
-    // Medium-priority executor: UART5, priority level 7
-    interrupt::UART5.set_priority(Priority::P7);
-    let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    // spawner.spawn(encoder_mon().expect("Spawn failure"));
+    spawner.spawn(blink_errled().expect("Spawn failure"));
     spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
 
     /*
@@ -570,6 +573,9 @@ fn main() -> ! {
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(blink(r.led).expect("Spawn failure"));
+        spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+        spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
+
+        spawner.spawn(blink_led().expect("Spawn failure"));
     });
 }

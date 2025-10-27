@@ -1,6 +1,8 @@
 use anchor::*;
 use defmt::*;
 
+use core::ops::{Deref, DerefMut};
+
 use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
@@ -11,7 +13,7 @@ use embassy_time::Instant;
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_constant]
-const CLOCK_FREQ: u32 = 24_000_000;
+const CLOCK_FREQ: u32 = 4_000_000;
 
 #[klipper_command]
 pub fn get_uptime() {
@@ -34,9 +36,12 @@ pub fn get_clock() {
 }
 
 #[klipper_command]
-pub fn emergency_stop() {
+pub fn emergency_stop(context: &State) {
     debug!("EMERGENCY STOP");
     LED_STATE.signal(crate::LedState::Error);
+    for i in 0..context.steppers.len() {
+        context.steppers[i].lock(|s| s.borrow_mut().deref_mut().stop());
+    }
 }
 
 #[klipper_command]
@@ -48,7 +53,7 @@ pub fn get_config(context: &State) {
         is_config: bool = crc.is_some(),
         crc: u32 = crc.unwrap_or(0),
         is_shutdown: bool = false,
-        move_count: u16 = 113
+        move_count: u16 = 64
     );
 }
 

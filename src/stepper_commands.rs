@@ -210,7 +210,6 @@ pub fn config_trsync(context: &mut State, oid: u8) {
     }
 }
 
-
 #[klipper_command]
 pub fn trsync_start(
     context: &mut State,
@@ -238,11 +237,12 @@ pub fn trsync_start(
                 t.trigger_reason = 0;
                 t.can_trigger = true;
                 t.expire_reason = expire_reason;
+                t.timeout_clock = None;
                 trsync_report(
                     oid,
                     if t.can_trigger { 1 } else { 0 },
                     t.trigger_reason,
-                    report_clock,
+                    Instant::now().as_ticks() as u32,
                 );
                 crate::TRSYNC_WATCH.dyn_sender().send(1);
                 return true;
@@ -263,6 +263,7 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
             let t = t.deref_mut();
             if t.oid == Some(oid) {
                 t.timeout_clock = Some(clock32_to_64(clock));
+                crate::TRSYNC_WATCH.dyn_sender().send(1);
                 return true;
             }
             false
@@ -310,7 +311,10 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
 }
 
 pub fn trsync_report(oid: u8, can_trigger: u8, trigger_reason: u8, clock: u32) {
-    info!("TrSync report {} {} {} {}", oid, can_trigger, trigger_reason, clock);
+    info!(
+        "TrSync report {} {} {} {}",
+        oid, can_trigger, trigger_reason, clock
+    );
     klipper_reply!(
         trsync_state,
         oid: u8,

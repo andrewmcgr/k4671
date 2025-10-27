@@ -66,7 +66,7 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
         M::lock(&self.inner, |q| {
             let mut q = q.borrow_mut();
 
-            q.queue.push_back((time, value)).unwrap();
+            q.queue.push_back((time, value)).ok();
             q.last_value = value;
         });
     }

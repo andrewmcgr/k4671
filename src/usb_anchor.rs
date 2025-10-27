@@ -14,7 +14,7 @@ use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 
-pub const ANCHOR_PIPE_SIZE: usize = 2048;
+pub const ANCHOR_PIPE_SIZE: usize = 256;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
@@ -137,7 +137,7 @@ impl UsbAnchor {
                 debug!("Anchor Out {:x}", &rx[..len]);
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
-                    let _ = sender.write_packet(&[]).await;
+                    let _ = sender.write_packet(&[]).await?;
                 }
                 yield_now().await;
             }
