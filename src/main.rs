@@ -7,6 +7,7 @@ use cortex_m_rt::entry;
 use assign_resources::assign_resources;
 use core::cell::RefCell;
 use core::ops::DerefMut;
+use core::sync::atomic::{AtomicU32, Ordering};
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{Executor, InterruptExecutor};
@@ -21,7 +22,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Instant, Ticker, Timer, TICK_HZ};
+use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
 use static_cell::StaticCell;
 
 use heapless::{LinearMap, Vec};
@@ -346,8 +347,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
     Some(tmc4671::TMCCommand::Move(
         STEP_MULT * target_position,
         STEP_MULT as f32 * v0,
-        0.0
-        // STEP_MULT as f32 * a0,
+        0.0, // STEP_MULT as f32 * a0,
     ))
 }
 
@@ -500,14 +500,40 @@ unsafe fn UART5() {
 
 #[embassy_executor::task]
 async fn stats() {
-    let mut ticker = tmc4671::TMCTimeIterator::new();
-    ticker.set_period(Duration::from_millis(5000));
+    let mut count = 0u32;
+    let mut sum = 0u32;
+    let mut sumsq = 0u64;
+    let mut ticker = Ticker::every(Duration::from_millis(500));
+    let mut last_sleep = 0u32;
+    let mut last_sample: Instant = Instant::now();
+    let mut last_stats: Instant = Instant::now();
     loop {
-        let ticks = ticker.next();
-        klipper_reply!(stats, count: u32 = 12345, sum: u32 = 23456, sumsq: u32 = 34567);
-        Timer::at(ticks).await
+        let now = Instant::now();
+        let sleep = SLEEP_TICKS.load(Ordering::Relaxed);
+        let diff = (now.as_ticks() - last_sample.as_ticks()) as u32;
+        last_sample = now;
+        let usage = diff.saturating_sub(sleep.wrapping_sub(last_sleep));
+        last_sleep = sleep;
+        count += 1;
+        sum += usage;
+        sumsq += (usage as u64) * (usage as u64);
+        if now > (last_stats + Duration::from_millis(5000)) {
+            sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
+            klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
+                u32::MAX
+            } else {
+                sumsq as u32
+            });
+            count = 0;
+            sum = 0;
+            sumsq = 0;
+            last_stats = now;
+        }
+        ticker.next().await;
     }
 }
+
+static SLEEP_TICKS: AtomicU32 = AtomicU32::new(0);
 
 #[entry]
 fn main() -> ! {
@@ -591,8 +617,16 @@ fn main() -> ! {
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
-    let executor = EXECUTOR_LOW.init(Executor::new());
-    executor.run(|spawner| {
-        spawner.spawn(blink_led().expect("Spawn failure"));
-    });
+    // let executor = EXECUTOR_LOW.init(Executor::new());
+    // executor.run(|spawner| {
+    //     spawner.spawn(blink_led().expect("Spawn failure"));
+    // });
+    loop {
+        cortex_m::interrupt::free(|_cs| {
+            let before = Instant::now().as_ticks();
+            cortex_m::asm::wfi();
+            let after = Instant::now().as_ticks();
+            SLEEP_TICKS.fetch_add((after - before) as u32, Ordering::Relaxed);
+        });
+    }
 }

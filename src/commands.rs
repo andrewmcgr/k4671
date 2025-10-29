@@ -79,7 +79,7 @@ pub fn allocate_oids(_count: u8) {
 const MCU: &str = "k4671_openffboard";
 
 #[klipper_constant]
-const STATS_SUMSQ_BASE: u32 = 256;
+pub const STATS_SUMSQ_BASE: u32 = 256;
 
 #[klipper_constant]
 const RECEIVE_WINDOW: u32 = 1024;
