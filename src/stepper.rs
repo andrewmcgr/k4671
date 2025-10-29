@@ -162,6 +162,7 @@ pub struct EmulatedStepper<T, const N: usize> {
     reset_target: Option<u32>,
     pub stepper_oid: Option<u8>,
     pub stepper_enable_oid: Option<u8>,
+    pub enabled: bool,
 }
 
 #[derive(Debug)]
@@ -215,6 +216,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 incomplete: true,
             },
             reset_target: None,
+            enabled: false,
         }
     }
 
@@ -338,5 +340,6 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         };
         info!("ES set_enabled {}", cmd);
         TMC_CMD.sender().try_send(cmd).ok();
+        self.enabled = enabled;
     }
 }

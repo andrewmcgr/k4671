@@ -6,14 +6,14 @@ use core::ops::{Deref, DerefMut};
 use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
-use embassy_time::Instant;
+use embassy_time::{Instant, TICK_HZ};
 
 #[klipper_constant]
 #[expect(non_upper_case_globals)]
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_constant]
-const CLOCK_FREQ: u32 = 4_000_000;
+const CLOCK_FREQ: u32 = 24_000_000;
 
 #[klipper_command]
 pub fn get_uptime() {
@@ -53,7 +53,7 @@ pub fn get_config(context: &State) {
         is_config: bool = crc.is_some(),
         crc: u32 = crc.unwrap_or(0),
         is_shutdown: bool = false,
-        move_count: u16 = 64
+        move_count: u16 = 512
     );
 }
 
@@ -81,8 +81,8 @@ const MCU: &str = "k4671_openffboard";
 #[klipper_constant]
 const STATS_SUMSQ_BASE: u32 = 256;
 
-// #[klipper_constant]
-// const RECEIVE_WINDOW: u32 = 512;
+#[klipper_constant]
+const RECEIVE_WINDOW: u32 = 1024;
 
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}

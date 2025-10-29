@@ -21,7 +21,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Instant, TICK_HZ, Timer};
+use embassy_time::{Duration, Instant, Ticker, Timer, TICK_HZ};
 use static_cell::StaticCell;
 
 use heapless::{LinearMap, Vec};
@@ -37,7 +37,7 @@ mod target_queue;
 mod usb_anchor;
 use crate::leds::{blink_errled, blink_focled, blink_led};
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 512>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 1024>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
 pub type ProtectedTrSync = CriticalSectionMutex<RefCell<TrSync>>;
 
@@ -259,6 +259,7 @@ pub struct State {
     steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
     steppers_by_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     steppers_by_enable_oid: LinearMap<u8, usize, NUM_STEPPERS>,
+    trsync_by_oid: LinearMap<u8, usize, NUM_TRSYNC>,
     trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
 }
 
@@ -272,6 +273,7 @@ impl State {
             steppers,
             steppers_by_oid: LinearMap::new(),
             steppers_by_enable_oid: LinearMap::new(),
+            trsync_by_oid: LinearMap::new(),
             trsync,
         }
     }
@@ -290,7 +292,7 @@ impl TransportOutput for BufferTransportOutput {
         if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
             if n < output.len() {
                 // Retry, possible a ring buffer wrap
-                debug!("USB transmit buffer retry???");
+                // debug!("USB transmit buffer retry???");
                 let _ = USB_OUT_BUFFER.try_write(&output[n..]);
             }
         } else {
@@ -309,7 +311,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
-        position_2: c2,
+        position_2: _c2,
     } = stepper.target_queue.get_for_control(next_time);
     // if target_position != unsafe { LAST_POS } {
     //     trace!("Target pos {} {}", target_position, next_time.as_ticks());
@@ -317,7 +319,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
     // }
 
     let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
-    let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
+    // let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
 
     let v0 = match c1 {
         Some((t1, p1)) => {
@@ -326,44 +328,49 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
         }
         _ => 0.0,
     };
-    let v1 = match (c1, c2) {
-        (Some((t1, p1)), Some((t2, p2))) => {
-            (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
-        }
-        _ => 0.0,
-    };
-    let a0 = match (v0, v1, c1, c2) {
-        (v0, v1, Some((t1, _)), Some((t2, _))) => {
-            (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
-        }
-        _ => 0.0,
-    };
+    // let v1 = match (c1, c2) {
+    //     (Some((t1, p1)), Some((t2, p2))) => {
+    //         (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+    //     }
+    //     _ => 0.0,
+    // };
+    // let a0 = match (v0, v1, c1, c2) {
+    //     (v0, v1, Some((t1, _)), Some((t2, _))) => {
+    //         (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+    //     }
+    //     _ => 0.0,
+    // };
     // debug!("Send move {}", target_position);
     const STEP_MULT: i32 = 8;
     stepper.advance();
     Some(tmc4671::TMCCommand::Move(
         STEP_MULT * target_position,
         STEP_MULT as f32 * v0,
-        STEP_MULT as f32 * a0,
+        0.0
+        // STEP_MULT as f32 * a0,
     ))
 }
 
 #[embassy_executor::task]
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
-    let mut ticker = tmc4671::TMCTimeIterator::new();
+    let mut ticker = Ticker::every(Duration::from_micros(500));
     let sender = TMC_CMD.sender();
-    ticker.set_period(Duration::from_micros(250));
     loop {
-        let ticks = ticker.next();
         // Move processing
         for stepper in steppers.iter() {
             if let Some(cmd) = stepper.lock(|s| -> Option<tmc4671::TMCCommand> {
-                process_moves(s.borrow_mut().deref_mut(), ticks)
+                let mut s = s.borrow_mut();
+                let s = s.deref_mut();
+                if s.enabled {
+                    process_moves(s, Instant::now() + Duration::from_micros(1100))
+                } else {
+                    None
+                }
             }) {
-                sender.send(cmd).await;
+                sender.try_send(cmd).ok();
             }
         }
-        Timer::at(ticks).await
+        ticker.next().await
     }
 }
 
@@ -491,6 +498,17 @@ unsafe fn UART5() {
 //     }
 // }
 
+#[embassy_executor::task]
+async fn stats() {
+    let mut ticker = tmc4671::TMCTimeIterator::new();
+    ticker.set_period(Duration::from_millis(5000));
+    loop {
+        let ticks = ticker.next();
+        klipper_reply!(stats, count: u32 = 12345, sum: u32 = 23456, sumsq: u32 = 34567);
+        Timer::at(ticks).await
+    }
+}
+
 #[entry]
 fn main() -> ! {
     dfu::maybe_enter_dfu();
@@ -557,25 +575,24 @@ fn main() -> ! {
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(encoder_mon().expect("Spawn failure"));
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
     spawner.spawn(blink_focled().expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
-    TMC control code goes here.
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(blink_errled().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
+    spawner.spawn(stats().expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
     */
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(move_processing(steppers).expect("Spawn failure"));
-        spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
-
         spawner.spawn(blink_led().expect("Spawn failure"));
     });
 }

@@ -14,7 +14,7 @@ use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 
-pub const ANCHOR_PIPE_SIZE: usize = 256;
+pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
@@ -84,7 +84,7 @@ impl UsbAnchor {
         config.manufacturer = Some("k4671");
         config.product = Some("K4671 Motor Driver");
         config.serial_number = Some(uid::uid_hex());
-        config.max_power = 100;
+        config.max_power = 500;
         config.max_packet_size_0 = MAX_PACKET_SIZE;
 
         let mut builder = Builder::new(
@@ -139,7 +139,7 @@ impl UsbAnchor {
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await?;
                 }
-                yield_now().await;
+                // yield_now().await;
             }
         };
         let mut reciever_fut = async || -> Result<(), Disconnected> {
@@ -175,7 +175,7 @@ impl UsbAnchor {
                     KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
                     let consumed = rx_buf.len() - wrap.available();
                     rx_buf.pop(consumed);
-                    yield_now().await;
+                    // yield_now().await;
                 }
             }
         };
