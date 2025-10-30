@@ -36,7 +36,9 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
+use crate::commands::{CLOCK_FREQ, now_clock32, now_clock64};
 use crate::leds::{blink_errled, blink_focled, blink_led};
+// use crate::usb_anchor::ANCHOR_MUTEX;
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 1024>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
@@ -105,16 +107,6 @@ klipper_enumeration!(
     }
 );
 
-pub fn clock32_to_64(clock32: u32) -> Instant {
-    let now_ticks = Instant::now().as_ticks();
-    let diff = (now_ticks as u32).wrapping_sub(clock32) as u32;
-    Instant::from_ticks(if diff & 0x8000_0000 != 0 {
-        now_ticks + 0x1_0000_0000 - diff as u64
-    } else {
-        now_ticks - diff as u64
-    })
-}
-
 #[derive(Debug, Default)]
 pub struct TrSync {
     oid: Option<u8>,
@@ -143,9 +135,9 @@ impl TrSync {
 
     fn process_trsync(self: &mut TrSync, oid: u8) -> Option<Instant> {
         // trsync processing
-        let now = Instant::now();
         let mut rv = Instant::MAX;
         if let Some(report_clock) = self.report_clock {
+            let now = Instant::now();
             info!(
                 "TrSync check {} now {} report {}",
                 oid,
@@ -157,7 +149,7 @@ impl TrSync {
                     oid,
                     if self.can_trigger { 1 } else { 0 },
                     self.trigger_reason,
-                    now.as_ticks() as u32,
+                    now_clock32(),
                 );
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
@@ -169,7 +161,7 @@ impl TrSync {
                             ticks
                         );
                         let mut next = report_clock;
-                        while next < now {
+                        while next <= now {
                             next += Duration::from_ticks(ticks as u64);
                         }
                         self.report_clock = Some(next);
@@ -179,7 +171,6 @@ impl TrSync {
                     } else {
                         info!("TrSync report {} now {} ticks None", oid, now.as_ticks());
                         self.report_clock = None;
-                        self.report_ticks = None;
                     }
                 }
             } else {
@@ -191,6 +182,7 @@ impl TrSync {
             }
         }
         if self.can_trigger && self.timeout_clock.is_some() {
+            let now = Instant::now();
             info!(
                 "TrSync check {} now {} timeout {}",
                 oid,
@@ -230,6 +222,7 @@ async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
 
         info!("TrSync wake");
         for t in trsync.iter() {
+            // let _lck = ANCHOR_MUTEX.lock().await;
             t.lock(|t| {
                 let mut t = t.borrow_mut();
                 let t = t.deref_mut();
@@ -361,11 +354,7 @@ async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPP
             if let Some(cmd) = stepper.lock(|s| -> Option<tmc4671::TMCCommand> {
                 let mut s = s.borrow_mut();
                 let s = s.deref_mut();
-                if s.enabled {
-                    process_moves(s, Instant::now() + Duration::from_micros(1100))
-                } else {
-                    None
-                }
+                process_moves(s, Instant::now() + Duration::from_micros(1100))
             }) {
                 sender.try_send(cmd).ok();
             }
@@ -381,7 +370,7 @@ async fn usb_comms(
     trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
 ) {
     // Create the driver, from the HAL.
-    let mut ep_out_buffer = [0u8; 256];
+    let mut ep_out_buffer = [0u8; 2048];
     let mut config = embassy_stm32::usb::Config::default();
 
     // Enable VBUS detection, OpenFFBoard requires it.
@@ -457,7 +446,7 @@ async fn tmc_task(r: TmcResources) {
 
 static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
-static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
+static EXECUTOR_LOW: InterruptExecutor = InterruptExecutor::new();
 
 #[interrupt]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -470,6 +459,13 @@ unsafe fn UART4() {
 unsafe fn UART5() {
     EXECUTOR_MED.on_interrupt()
 }
+
+#[interrupt]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn USART3() {
+    EXECUTOR_LOW.on_interrupt()
+}
+
 
 // type OnceLockQei = OnceLock<qei::Qei<'static, TIM3>>;
 // static ENCODER: OnceLockQei = OnceLockQei::new();
@@ -505,25 +501,28 @@ async fn stats() {
     let mut sumsq = 0u64;
     let mut ticker = Ticker::every(Duration::from_millis(500));
     let mut last_sleep = 0u32;
-    let mut last_sample: Instant = Instant::now();
-    let mut last_stats: Instant = Instant::now();
+    let mut last_sample: u32 = now_clock32();
+    let mut last_stats: u32 = now_clock32();
     loop {
-        let now = Instant::now();
+        let now = now_clock32();
         let sleep = SLEEP_TICKS.load(Ordering::Relaxed);
-        let diff = (now.as_ticks() - last_sample.as_ticks()) as u32;
+        let diff = (now.wrapping_sub(last_sample));
         last_sample = now;
         let usage = diff.saturating_sub(sleep.wrapping_sub(last_sleep));
         last_sleep = sleep;
         count += 1;
         sum += usage;
         sumsq += (usage as u64) * (usage as u64);
-        if now > (last_stats + Duration::from_millis(5000)) {
+        if now > (last_stats + (CLOCK_FREQ * 5)) {
             sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
-            klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
-                u32::MAX
-            } else {
-                sumsq as u32
-            });
+            {
+                // let _lck = ANCHOR_MUTEX.lock().await;
+                klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
+                    u32::MAX
+                } else {
+                    sumsq as u32
+                });
+            }
             count = 0;
             sum = 0;
             sumsq = 0;
@@ -578,6 +577,7 @@ fn main() -> ! {
     {
         let mut peripherals = cortex_m::Peripherals::take().unwrap();
         peripherals.DCB.enable_trace();
+        DWT::unlock();
         peripherals.DWT.enable_cycle_counter();
     }
 
@@ -596,23 +596,31 @@ fn main() -> ! {
     vector would work exactly the same.
     */
 
+    // USB interrupt: OTG_FS, priority level 5, highest priority
+    interrupt::OTG_FS.set_priority(Priority::P5);
+
+    interrupt::USART3.set_priority(Priority::P8);
+    let spawner = EXECUTOR_LOW.start(interrupt::USART3);
+    spawner.spawn(blink_focled().expect("Spawn failure"));
+    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(stats().expect("Spawn failure"));
+
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    // spawner.spawn(encoder_mon().expect("Spawn failure"));
+    spawner.spawn(blink_errled().expect("Spawn failure"));
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
-    spawner.spawn(blink_focled().expect("Spawn failure"));
+    spawner.spawn(blink_led().expect("Spawn failure"));
+
+    // spawner.spawn(encoder_mon().expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
-    spawner.spawn(blink_errled().expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
     spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
-    spawner.spawn(stats().expect("Spawn failure"));
 
     /*
     Low priority executor: runs in thread mode, using WFE/SEV
@@ -623,10 +631,10 @@ fn main() -> ! {
     // });
     loop {
         cortex_m::interrupt::free(|_cs| {
-            let before = Instant::now().as_ticks();
+            let before = now_clock32();
             cortex_m::asm::wfi();
-            let after = Instant::now().as_ticks();
-            SLEEP_TICKS.fetch_add((after - before) as u32, Ordering::Relaxed);
+            let after = now_clock32();
+            SLEEP_TICKS.fetch_add((after.wrapping_sub(before)), Ordering::Relaxed);
         });
     }
 }

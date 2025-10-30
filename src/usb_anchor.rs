@@ -20,6 +20,8 @@ pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
 pub type AnchorMutex<T> = Mutex<CS, T>;
 
+pub static ANCHOR_MUTEX: AnchorMutex<()> = AnchorMutex::new(());
+
 struct Disconnected {}
 
 impl From<EndpointError> for Disconnected {
@@ -146,7 +148,7 @@ impl UsbAnchor {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             let mut state = crate::State::new(steppers, trsync);
 
-            type RxBuf = FifoBuffer<{ (MAX_PACKET_SIZE * 2) as usize }>;
+            type RxBuf = FifoBuffer<{ MAX_PACKET_SIZE as usize * 2 }>;
             let mut rx_buf: RxBuf = RxBuf::new();
             receiver.wait_connection().await;
             loop {
@@ -172,6 +174,7 @@ impl UsbAnchor {
                 rx_buf.extend(&reciever_buf[..len]);
                 if !rx_buf.is_empty() {
                     let mut wrap = SliceInputBuffer::new(rx_buf.data());
+                    // let _lck = ANCHOR_MUTEX.lock().await;
                     KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
                     let consumed = rx_buf.len() - wrap.available();
                     rx_buf.pop(consumed);

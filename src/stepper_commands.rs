@@ -1,10 +1,10 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::clock32_to_64;
 use crate::stepper::Direction;
 use core::ops::{Deref, DerefMut};
 use embassy_time::Instant;
+use crate::commands::{now_clock32, now_clock64, clock32_to_64};
 
 use anchor::*;
 use defmt::*;
@@ -68,7 +68,7 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
         info!("Reset step clock {} {}", oid, clock);
         context.steppers[*i].lock(|s| {
             s.borrow_mut().deref_mut().reset_clock(Instant::from_ticks(
-                Instant::now().as_ticks() & (0xffff_ffff << 32) & (clock as u64),
+                now_clock64() & (0xffff_ffff << 32) & (clock as u64),
             ));
         });
     } else {
@@ -242,7 +242,7 @@ pub fn trsync_start(
                 //     oid,
                 //     if t.can_trigger { 1 } else { 0 },
                 //     t.trigger_reason,
-                //     Instant::now().as_ticks() as u32,
+                //     now_clock32(),
                 // );
                 crate::TRSYNC_WATCH.dyn_sender().send(1);
             });
