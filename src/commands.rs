@@ -7,7 +7,7 @@ use core::ops::DerefMut;
 use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
-use embassy_time::Instant;
+use embassy_time::{TICK_HZ, Instant};
 use core::sync::atomic::{AtomicU32, Ordering};
 
 static TICKS_HIGH: AtomicU32 = AtomicU32::new(0);
@@ -23,21 +23,18 @@ pub fn now_clock32() -> u32 {
 }
 
 pub fn now_clock64() -> u64 {
-    let ticks = DWT::cycle_count();
-    if ticks < TICKS_LAST.load(Ordering::Acquire) {
-        TICKS_HIGH.fetch_add(1, Ordering::Release);
-    }
-    TICKS_LAST.store(ticks, Ordering::Release);
+    let ticks = now_clock32();
     ticks as u64 + ((TICKS_HIGH.load(Ordering::Acquire) as u64) << 32)
 }
 
-
 pub fn clock32_to_64(clock32: u32) -> Instant {
-    let mut high = TICKS_HIGH.load(Ordering::Acquire);
-    if clock32 < TICKS_LAST.load(Ordering::Acquire) {
-        high += 1;
-    }
-    Instant::from_ticks(clock32 as u64 + ((high as u64) << 32))
+    let now = now_clock64();
+    let high: u32 = (now >> 32) as u32;
+    Instant::from_ticks((clock32 as u64 + ((high as u64) << 32)) / TICKS_TO_CLOCK)
+}
+
+pub fn clock32_to_ticks(clock32: u32) -> u32 {
+    clock32 / TICKS_TO_CLOCK as u32
 }
 
 #[klipper_constant]
@@ -47,7 +44,7 @@ const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 #[klipper_constant]
 pub const CLOCK_FREQ: u32 = 168_000_000;
 
-// pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ as u64 / TICK_HZ;
+pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ as u64 / TICK_HZ;
 
 #[klipper_command]
 pub fn get_uptime() {

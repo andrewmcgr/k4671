@@ -110,7 +110,7 @@ klipper_enumeration!(
 pub struct TrSync {
     oid: Option<u8>,
     report_clock: Option<Instant>,
-    report_ticks: Option<u32>,
+    report_ticks: Option<Duration>,
     expire_reason: u8,
     trigger_reason: u8,
     timeout_clock: Option<Instant>,
@@ -152,16 +152,16 @@ impl TrSync {
                 );
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
-                    if ticks > 0 {
+                    if ticks > Duration::from_ticks(0) {
                         info!(
                             "TrSync report {} now {} ticks {}",
                             oid,
                             now.as_ticks(),
-                            ticks
+                            ticks.as_ticks()
                         );
                         let mut next = report_clock;
                         while next <= now {
-                            next += Duration::from_ticks(ticks as u64);
+                            next += ticks;
                         }
                         self.report_clock = Some(next);
                         if next < rv {
@@ -180,25 +180,27 @@ impl TrSync {
                 }
             }
         }
-        if self.can_trigger && self.timeout_clock.is_some() {
-            let now = Instant::now();
-            info!(
-                "TrSync check {} now {} timeout {}",
-                oid,
-                now.as_ticks(),
-                self.timeout_clock.unwrap().as_ticks()
-            );
-            if now > self.timeout_clock.unwrap() {
-                info!("TrSync timeout {} now {}", oid, now.as_ticks());
-                // Timer has expired
-                self.timeout_clock = None;
-                self.can_trigger = false;
-                self.trigger_reason = self.expire_reason;
-                stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
-            } else {
-                if let Some(next) = self.timeout_clock {
-                    if next < rv {
-                        rv = next;
+        if let Some(timeout_clock) = self.timeout_clock {
+            if self.can_trigger {
+                let now = Instant::now();
+                info!(
+                    "TrSync check {} now {} timeout {}",
+                    oid,
+                    now.as_ticks(),
+                    timeout_clock.as_ticks()
+                );
+                if now >= timeout_clock {
+                    info!("TrSync timeout {} now {}", oid, now.as_ticks());
+                    // Timer has expired
+                    self.timeout_clock = None;
+                    self.can_trigger = false;
+                    self.trigger_reason = self.expire_reason;
+                    stepper_commands::trsync_report(oid, 0, self.expire_reason, now_clock32());
+                } else {
+                    if let Some(next) = self.timeout_clock {
+                        if next < rv {
+                            rv = next;
+                        }
                     }
                 }
             }

@@ -1,10 +1,10 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
+use crate::commands::{clock32_to_64, clock32_to_ticks, now_clock32};
 use crate::stepper::Direction;
 use core::ops::{Deref, DerefMut};
-use embassy_time::Instant;
-use crate::commands::{now_clock32, now_clock64, clock32_to_64};
+use embassy_time::Duration;
 
 use anchor::*;
 use defmt::*;
@@ -37,7 +37,11 @@ pub fn config_stepper(
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("queue_step {} {} {}", interval, count, add);
-        context.steppers[*i].lock(|s| s.borrow_mut().deref_mut().queue_move(interval, count, add));
+        context.steppers[*i].lock(|s| {
+            s.borrow_mut()
+                .deref_mut()
+                .queue_move(clock32_to_ticks(interval), count, add)
+        });
     } else {
         warn!("No OID match");
     }
@@ -67,9 +71,7 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         info!("Reset step clock {} {}", oid, clock);
         context.steppers[*i].lock(|s| {
-            s.borrow_mut().deref_mut().reset_clock(Instant::from_ticks(
-                now_clock64() & (0xffff_ffff << 32) & (clock as u64),
-            ));
+            s.borrow_mut().deref_mut().reset_clock(clock32_to_64(clock));
         });
     } else {
         warn!("No OID match");
@@ -233,17 +235,17 @@ pub fn trsync_start(
                 } else {
                     None
                 };
-                t.report_ticks = Some(report_ticks);
+                t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
                 t.trigger_reason = 0;
                 t.can_trigger = true;
                 t.expire_reason = expire_reason;
                 t.timeout_clock = None;
-                // trsync_report(
-                //     oid,
-                //     if t.can_trigger { 1 } else { 0 },
-                //     t.trigger_reason,
-                //     now_clock32(),
-                // );
+                trsync_report(
+                    oid,
+                    if t.can_trigger { 1 } else { 0 },
+                    t.trigger_reason,
+                    now_clock32(),
+                );
                 crate::TRSYNC_WATCH.dyn_sender().send(1);
             });
         };
