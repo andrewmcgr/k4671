@@ -1,9 +1,7 @@
-use defmt::*;
-
 use embassy_stm32::{gpio::{Level, Output, Pin, Speed}, Peripherals};
 use embassy_time::Timer;
 
-use crate::{LED_STATE, LedState};
+// use crate::{LED_STATE, LedState};
 
 pub async fn blink_one_generic<T: Pin>(led: embassy_stm32::Peri<'static, T>) {
     let mut led = Output::new(led, Level::High, Speed::Low);

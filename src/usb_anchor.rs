@@ -4,7 +4,6 @@ use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
-use embassy_futures::yield_now;
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
@@ -20,7 +19,7 @@ pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
 pub type AnchorMutex<T> = Mutex<CS, T>;
 
-pub static ANCHOR_MUTEX: AnchorMutex<()> = AnchorMutex::new(());
+// pub static ANCHOR_MUTEX: AnchorMutex<()> = AnchorMutex::new(());
 
 struct Disconnected {}
 
@@ -121,7 +120,7 @@ impl UsbAnchor {
 
     async fn run_anchor_class<'d, D>(
         &mut self,
-        in_pipe: &'d AnchorPipe,
+        _in_pipe: &'d AnchorPipe,
         out_pipe: &'d AnchorPipe,
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,

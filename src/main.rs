@@ -10,7 +10,7 @@ use core::ops::DerefMut;
 use core::sync::atomic::{AtomicU32, Ordering};
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_executor::{Executor, InterruptExecutor};
+use embassy_executor::{InterruptExecutor, Metadata};
 use embassy_futures::select::select;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
@@ -28,7 +28,7 @@ use static_cell::StaticCell;
 use heapless::{LinearMap, Vec};
 
 use anchor::*;
-use tmc4671::{self, CS, TimeIterator, config::TMC4671Config};
+use tmc4671::{self, CS, config::TMC4671Config};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
@@ -36,9 +36,8 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{CLOCK_FREQ, now_clock32, now_clock64};
+use crate::commands::{CLOCK_FREQ, now_clock32};
 use crate::leds::{blink_errled, blink_focled, blink_led};
-// use crate::usb_anchor::ANCHOR_MUTEX;
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 1024>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
@@ -196,7 +195,6 @@ impl TrSync {
                 self.can_trigger = false;
                 self.trigger_reason = self.expire_reason;
                 stepper_commands::trsync_report(oid, 0, self.expire_reason, 0);
-                // rv = None;
             } else {
                 if let Some(next) = self.timeout_clock {
                     if next < rv {
@@ -216,13 +214,14 @@ async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
     let sender = TRSYNC_WATCH.sender();
     let mut ticks = Instant::MAX;
 
+    Metadata::for_current_task().await.set_priority(9);
+
     loop {
         // Wait for something to do
-        select(receiver.changed_and(|v| *v > 0), Timer::at(ticks)).await;
+        select(receiver.changed(), Timer::at(ticks)).await;
 
         info!("TrSync wake");
         for t in trsync.iter() {
-            // let _lck = ANCHOR_MUTEX.lock().await;
             t.lock(|t| {
                 let mut t = t.borrow_mut();
                 let t = t.deref_mut();
@@ -244,6 +243,8 @@ async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
             // Nothing to do, go back to sleep
             info!("TrSync idle");
             sender.send(0);
+            // Mark value seen so we don't wake immediately
+            let _ = receiver.get().await;
         }
     }
 }
@@ -348,6 +349,9 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
     let mut ticker = Ticker::every(Duration::from_micros(500));
     let sender = TMC_CMD.sender();
+
+    Metadata::for_current_task().await.set_priority(6);
+
     loop {
         // Move processing
         for stepper in steppers.iter() {
@@ -379,6 +383,8 @@ async fn usb_comms(
     // Timer::after_millis(100).await;
     info!("Hello USB!");
 
+    Metadata::for_current_task().await.set_priority(8);
+
     let driver: Driver<'_, peripherals::USB_OTG_FS> =
         Driver::new_fs(r.otg, Irqs, r.dplus, r.dminus, &mut ep_out_buffer, config);
     let mut state = usb_anchor::AnchorState::new();
@@ -393,8 +399,6 @@ async fn usb_comms(
         trsync,
     );
     anchor_fut.await;
-    // let anchor_protocol_fut = anchor_protocol(&in_pipe, steppers, trsync);
-    // join(anchor_fut, anchor_protocol_fut).await;
 }
 
 #[derive(Default)]
@@ -441,6 +445,9 @@ async fn tmc_task(r: TmcResources) {
         Ok(_) => LED_STATE.signal(LedState::Waiting),
         Err(_) => LED_STATE.signal(LedState::Error),
     }
+
+    Metadata::for_current_task().await.set_priority(7);
+
     tmc.run().await;
 }
 
@@ -466,34 +473,6 @@ unsafe fn USART3() {
     EXECUTOR_LOW.on_interrupt()
 }
 
-
-// type OnceLockQei = OnceLock<qei::Qei<'static, TIM3>>;
-// static ENCODER: OnceLockQei = OnceLockQei::new();
-
-// #[embassy_executor::task]
-// async fn encoder_mon() {
-//     TMC_CMD.dyn_sender().send(tmc4671::TMCCommand::Enable).await;
-//     let mut old_pos = 0;
-//     loop {
-// let pos = ENCODER.get().await.count();
-// let pos = if pos > 32768 {
-//     (pos as i32) - 65536
-// } else {
-//     pos as i32
-// };
-//         let pos = pos * 256;
-//         let dpos = (pos - old_pos) as f32;
-//         old_pos = pos;
-
-//         // info!("Encoder pos {}", pos);
-//         TMC_CMD
-//             .dyn_sender()
-//             .send(tmc4671::TMCCommand::Move(pos, dpos / 0.03, 0.0))
-//             .await;
-//         Timer::after_millis(10).await;
-//     }
-// }
-
 #[embassy_executor::task]
 async fn stats() {
     let mut count = 0u32;
@@ -506,7 +485,7 @@ async fn stats() {
     loop {
         let now = now_clock32();
         let sleep = SLEEP_TICKS.load(Ordering::Relaxed);
-        let diff = (now.wrapping_sub(last_sample));
+        let diff = now.wrapping_sub(last_sample);
         last_sample = now;
         let usage = diff.saturating_sub(sleep.wrapping_sub(last_sleep));
         last_sleep = sleep;
@@ -583,12 +562,6 @@ fn main() -> ! {
 
     info!("Hello World! {}", DWT::cycle_count());
 
-    // let _ = ENCODER.init(qei::Qei::new(
-    //     r.encoder.timer,
-    //     qei::QeiPin::new(r.encoder.enc_a),
-    //     qei::QeiPin::new(r.encoder.enc_b),
-    // ));
-
     /*
     STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
     by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of the application.
@@ -599,6 +572,9 @@ fn main() -> ! {
     // USB interrupt: OTG_FS, priority level 5, highest priority
     interrupt::OTG_FS.set_priority(Priority::P5);
 
+    /*
+    Low priority executor: USART3, priority level 8
+    */
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
     spawner.spawn(blink_focled().expect("Spawn failure"));
@@ -610,9 +586,6 @@ fn main() -> ! {
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     spawner.spawn(blink_errled().expect("Spawn failure"));
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
-    spawner.spawn(blink_led().expect("Spawn failure"));
-
-    // spawner.spawn(encoder_mon().expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
@@ -620,21 +593,18 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
+    spawner.spawn(blink_led().expect("Spawn failure"));
     spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
 
     /*
-    Low priority executor: runs in thread mode, using WFE/SEV
+    Sleep loop, thread mode. Account for sleep time.
     */
-    // let executor = EXECUTOR_LOW.init(Executor::new());
-    // executor.run(|spawner| {
-    //     spawner.spawn(blink_led().expect("Spawn failure"));
-    // });
     loop {
         cortex_m::interrupt::free(|_cs| {
             let before = now_clock32();
             cortex_m::asm::wfi();
             let after = now_clock32();
-            SLEEP_TICKS.fetch_add((after.wrapping_sub(before)), Ordering::Relaxed);
+            SLEEP_TICKS.fetch_add(after.wrapping_sub(before), Ordering::Relaxed);
         });
     }
 }

@@ -2,12 +2,12 @@ use anchor::*;
 use cortex_m::peripheral::DWT;
 use defmt::*;
 
-use core::ops::{Deref, DerefMut};
+use core::ops::DerefMut;
 
 use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
-use embassy_time::{Instant, TICK_HZ};
+use embassy_time::Instant;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 static TICKS_HIGH: AtomicU32 = AtomicU32::new(0);
@@ -47,7 +47,7 @@ const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 #[klipper_constant]
 pub const CLOCK_FREQ: u32 = 168_000_000;
 
-pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ as u64 / TICK_HZ;
+// pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ as u64 / TICK_HZ;
 
 #[klipper_command]
 pub fn get_uptime() {
