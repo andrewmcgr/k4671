@@ -1,7 +1,7 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::commands::{clock32_to_64, clock32_to_ticks, now_clock32};
+use crate::commands::{clock32_to_64, clock32_to_ticks};
 use crate::stepper::Direction;
 use core::ops::{Deref, DerefMut};
 use embassy_time::Duration;
@@ -230,22 +230,16 @@ pub fn trsync_start(
                 let mut t = t.borrow_mut();
                 let t = t.deref_mut();
                 info!("TrSync starting for {}", oid);
+                t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
                 t.report_clock = if report_clock != 0 {
-                    Some(clock32_to_64(report_clock))
+                    Some(clock32_to_64(report_clock) + t.report_ticks.unwrap_or_default())
                 } else {
                     None
                 };
-                t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
                 t.trigger_reason = 0;
                 t.can_trigger = true;
                 t.expire_reason = expire_reason;
                 t.timeout_clock = None;
-                trsync_report(
-                    oid,
-                    if t.can_trigger { 1 } else { 0 },
-                    t.trigger_reason,
-                    now_clock32(),
-                );
                 crate::TRSYNC_WATCH.dyn_sender().send(1);
             });
         };
@@ -295,6 +289,7 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
                 t.report_clock = None;
                 t.report_ticks = None;
                 trsync_report(oid, 0, reason, 0);
+                crate::TRSYNC_WATCH.dyn_sender().send(1);
             });
         }
     }

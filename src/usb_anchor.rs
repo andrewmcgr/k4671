@@ -140,6 +140,7 @@ impl UsbAnchor {
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await?;
                 }
+                Timer::after_micros(10).await;
                 // yield_now().await;
             }
         };
@@ -178,6 +179,7 @@ impl UsbAnchor {
                     let consumed = rx_buf.len() - wrap.available();
                     rx_buf.pop(consumed);
                     // yield_now().await;
+                    Timer::after_micros(10).await;
                 }
             }
         };
