@@ -1,15 +1,7 @@
 use crate::stepper::Callbacks;
-use core::cell::RefCell;
 use embassy_time::Instant;
 use heapless::Deque;
 
-#[derive(Debug)]
-pub struct TargetQueueInner<const N: usize> {
-    queue: Deque<(Instant, u32), N>,
-    last_value: u32,
-}
-
-pub type TargetQueueInnerTypeCell<const N: usize> = RefCell<TargetQueueInner<N>>;
 
 pub struct ControlOutput {
     pub position: i32,
@@ -27,78 +19,61 @@ impl ControlOutput {
     }
 }
 
-pub trait Mutex {
-    type Inner<T>;
-    fn new<T>(val: T) -> Self::Inner<T>;
-    fn lock<T, R>(inner: &Self::Inner<T>, f: impl FnOnce(&T) -> R) -> R;
-}
-
 #[derive(Debug)]
-pub struct TargetQueue<M: Mutex, const N: usize> {
-    inner: M::Inner<TargetQueueInnerTypeCell<N>>,
+pub struct TargetQueue<const N: usize> {
+    queue: Deque<(Instant, u32), N>,
+    last_value: u32,
 }
 
-impl<M: Mutex, const N: usize> Default for TargetQueue<M, N> {
+impl<const N: usize> Default for TargetQueue<N> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<M: Mutex, const N: usize> TargetQueue<M, N> {
+impl<const N: usize> TargetQueue<N> {
     pub fn new() -> Self {
         Self {
-            inner: M::new(RefCell::new(TargetQueueInner {
-                queue: Deque::new(),
-                last_value: 0,
-            })),
+            queue: Deque::new(),
+            last_value: 0,
         }
     }
 
     fn can_append(&self) -> bool {
-        !M::lock(&self.inner, |q| q.borrow().queue.is_full())
+        self.queue.is_full()
     }
 
     pub fn clear(&self) {
-        M::lock(&self.inner, |q| q.borrow_mut().queue.clear());
+       self.queue.clear();
     }
 
     fn append(&self, time: Instant, value: u32) {
-        M::lock(&self.inner, |q| {
-            let mut q = q.borrow_mut();
-
-            q.queue.push_back((time, value)).ok();
-            q.last_value = value;
-        });
+        self.queue.push_back((time, value)).ok();
+        self.last_value = value;
     }
 
     fn update_last(&self, _time: Instant, value: u32) {
-        M::lock(&self.inner, |q| {
-            let mut q = q.borrow_mut();
-            if let Some((_, v)) = q.queue.back_mut() {
-                *v = value;
-            }
-            q.last_value = value;
-        });
+        if let Some(&mut v) = self.queue.back_mut() {
+            v = value;
+        }
+        self.last_value = value;
     }
 
     pub fn get_for_control(&self, time: Instant) -> ControlOutput {
-        M::lock(&self.inner, |q| {
-            let mut inner = q.borrow_mut();
-            let last = inner.last_value as i32;
-            let q = &mut inner.queue;
+            let last = self.last_value as i32;
 
             // Remove from front such that the next item will be read now
 
-            while let Some((t, _)) = q.front() {
+            while let Some((t, _)) = self.queue.front() {
                 if *t >= time {
                     break;
                 }
-                q.pop_front();
+                self.queue.pop_front();
             }
-            if q.is_empty() {
+            if self.queue.is_empty() {
                 return ControlOutput::single(last);
             }
-            let mut iter = q.iter();
+            let mut iter = self.queue.iter();
             let v0 = iter.next().copied();
             let v0 = match v0 {
                 Some((t0, v0)) if t0 == time => v0,
@@ -111,11 +86,11 @@ impl<M: Mutex, const N: usize> TargetQueue<M, N> {
                 position_1: v1.map(|(t, v)| (t.as_ticks(), v as i32)),
                 position_2: v2.map(|(t, v)| (t.as_ticks(), v as i32)),
             }
-        })
+        
     }
 }
 
-impl<M: Mutex, const N: usize> Callbacks for TargetQueue<M, N> {
+impl<const N: usize> Callbacks for TargetQueue<N> {
     fn append(&mut self, time: Instant, value: u32) {
         TargetQueue::append(self, time, value)
     }
