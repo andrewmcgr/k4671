@@ -3,7 +3,6 @@ use crate::LedState::{Connected, Enabled};
 use crate::State;
 use crate::commands::{clock32_to_64, clock32_to_ticks};
 use crate::stepper::Direction;
-use core::ops::{Deref, DerefMut};
 use embassy_time::Duration;
 
 use anchor::*;
@@ -24,7 +23,7 @@ pub fn config_stepper(
     );
 
     for i in 0..context.steppers.len() {
-        if context.steppers[i].lock(|s| s.borrow().deref().stepper_oid.is_some()) {
+        if context.steppers[i].stepper_oid.is_some() {
             continue;
         } else {
             context.steppers_by_oid.insert(oid, i).ok();
@@ -37,11 +36,7 @@ pub fn config_stepper(
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("queue_step {} {} {}", interval, count, add);
-        context.steppers[*i].lock(|s| {
-            s.borrow_mut()
-                .deref_mut()
-                .queue_move(clock32_to_ticks(interval), count, add)
-        });
+        context.steppers[*i].queue_move(clock32_to_ticks(interval), count, add);
     } else {
         warn!("No OID match");
     }
@@ -51,14 +46,12 @@ pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: 
 pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Set next step dir {} {}", oid, dir);
-        context.steppers[*i].lock(|s| {
-            s.borrow_mut().deref_mut().set_next_dir(if dir == 1 {
-                debug!("Forward");
-                Direction::Forward
-            } else {
-                debug!("Backward");
-                Direction::Backward
-            })
+        context.steppers[*i].set_next_dir(if dir == 1 {
+            debug!("Forward");
+            Direction::Forward
+        } else {
+            debug!("Backward");
+            Direction::Backward
         });
     } else {
         warn!("No OID match");
@@ -70,9 +63,7 @@ pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         info!("Reset step clock {} {}", oid, clock);
-        context.steppers[*i].lock(|s| {
-            s.borrow_mut().deref_mut().reset_clock(clock32_to_64(clock));
-        });
+        context.steppers[*i].reset_clock(clock32_to_64(clock));
     } else {
         warn!("No OID match");
     }
@@ -82,7 +73,7 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
 pub fn stepper_get_position(context: &mut State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get position {}", oid);
-        let pos = context.steppers[*i].lock(|s| s.borrow().deref().get_position());
+        let pos = context.steppers[*i].get_position();
         info!("Stepper position responds {}", pos);
         klipper_reply!(stepper_position, oid: u8, pos: i32)
     } else {
@@ -95,7 +86,7 @@ pub fn stepper_get_position(context: &mut State, oid: u8) {
 pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get commanded position {}", oid);
-        let pos = context.steppers[*i].lock(|s| s.borrow().deref().get_commanded_position());
+        let pos = context.steppers[*i].get_commanded_position();
         info!("Stepper commanded position responds {}", pos);
         klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
     } else {
@@ -118,9 +109,7 @@ pub fn config_digital_out(
     if pin != u8::from(Pins::Enable) {
         return;
     }
-    context.steppers[0].lock(|s| {
-        s.borrow_mut().deref_mut().stepper_enable_oid = Some(oid);
-    });
+    context.steppers[0].stepper_enable_oid = Some(oid);
     context.steppers_by_enable_oid.insert(oid, 0).ok();
 }
 
@@ -129,12 +118,8 @@ pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u3
     if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
         info!("Queue digital out {} {} {}", oid, _clock, on_ticks);
         let enable = on_ticks != 0;
-        context.steppers[*i].lock(|s| {
-            let mut sis = s.borrow_mut();
-            let sis = sis.deref_mut();
-            sis.reset_target(0);
-            sis.set_enabled(enable);
-        });
+        context.steppers[*i].reset_target(0);
+        context.steppers[*i].set_enabled(enable);
         if enable {
             LED_STATE.signal(Connected);
         } else {
@@ -149,12 +134,8 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
         info!("Update digital out {} {}", oid, value);
         let enable = value != 0;
         if !enable {
-            context.steppers[*i].lock(|s| {
-                let mut sis = s.borrow_mut();
-                let sis = sis.deref_mut();
-                sis.reset_target(0);
-                sis.set_enabled(enable);
-            });
+            context.steppers[*i].reset_target(0);
+            context.steppers[*i].set_enabled(enable);
             LED_STATE.signal(Connected);
         } else {
             LED_STATE.signal(Enabled);
@@ -181,13 +162,9 @@ klipper_enumeration! {
 pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, trsync_oid: u8) {
     info!("Stepper stop on trigger {} {}", oid, trsync_oid);
     if let Some(i) = context.trsync_by_oid.get(&trsync_oid) {
-        if let Some(t) = context.trsync.get(*i) {
-            t.lock(|t| {
-                let mut t = t.borrow_mut();
-                let t = t.deref_mut();
-                info!("Stepper {} registered for TrSync {}", oid, trsync_oid);
-                t.stepper_oids.push(oid).ok();
-            });
+        if let Some(t) = context.trsync.get_mut(*i) {
+            info!("Stepper {} registered for TrSync {}", oid, trsync_oid);
+            t.stepper_oids.push(oid).ok();
         }
     }
 }
@@ -195,19 +172,12 @@ pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, trsync_oid: u8) {
 #[klipper_command]
 pub fn config_trsync(context: &mut State, oid: u8) {
     info!("Config trsync {}", oid);
-    for (i, t) in context.trsync.iter().enumerate() {
-        if t.lock(|t| -> bool {
-            let mut t = t.borrow_mut();
-            let t = t.deref_mut();
-            if t.oid.is_none() {
-                t.oid = Some(oid);
-                context.trsync_by_oid.insert(oid, i).ok();
-                info!("TrSync allocated for {}", oid);
-                return true;
-            }
-            false
-        }) {
-            return;
+    for (i, t) in context.trsync.iter_mut().enumerate() {
+        if t.oid.is_none() {
+            t.oid = Some(oid);
+            context.trsync_by_oid.insert(oid, i).ok();
+            info!("TrSync allocated for {}", oid);
+            break;
         }
     }
 }
@@ -225,23 +195,19 @@ pub fn trsync_start(
         oid, report_clock, report_ticks, expire_reason
     );
     if let Some(i) = context.trsync_by_oid.get(&oid) {
-        if let Some(t) = context.trsync.get(*i) {
-            t.lock(|t| {
-                let mut t = t.borrow_mut();
-                let t = t.deref_mut();
-                info!("TrSync starting for {}", oid);
-                t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
-                t.report_clock = if report_clock != 0 {
-                    Some(clock32_to_64(report_clock) + t.report_ticks.unwrap_or_default())
-                } else {
-                    None
-                };
-                t.trigger_reason = 0;
-                t.can_trigger = true;
-                t.expire_reason = expire_reason;
-                t.timeout_clock = None;
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
-            });
+        if let Some(t) = context.trsync.get_mut(*i) {
+            info!("TrSync starting for {}", oid);
+            t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
+            t.report_clock = if report_clock != 0 {
+                Some(clock32_to_64(report_clock) + t.report_ticks.unwrap_or_default())
+            } else {
+                None
+            };
+            t.trigger_reason = 0;
+            t.can_trigger = true;
+            t.expire_reason = expire_reason;
+            t.timeout_clock = None;
+            crate::TRSYNC_WATCH.dyn_sender().send(1);
         };
     }
 }
@@ -250,13 +216,9 @@ pub fn trsync_start(
 pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
     info!("TrSync set timeout {} {}", oid, clock);
     if let Some(i) = context.trsync_by_oid.get(&oid) {
-        if let Some(t) = context.trsync.get(*i) {
-            t.lock(|t| {
-                let mut t = t.borrow_mut();
-                let t = t.deref_mut();
-                t.timeout_clock = Some(clock32_to_64(clock));
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
-            });
+        if let Some(t) = context.trsync.get_mut(*i) {
+            t.timeout_clock = Some(clock32_to_64(clock));
+            crate::TRSYNC_WATCH.dyn_sender().send(clock);
         }
     }
 }
@@ -266,31 +228,22 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
     info!("TrSync trigger {} {}", oid, reason);
 
     if let Some(i) = context.trsync_by_oid.get(&oid) {
-        if let Some(t) = context.trsync.get(*i) {
-            t.lock(|t| {
-                let mut t = t.borrow_mut();
-                let t = t.deref_mut();
-
-                for i in t.stepper_oids.drain(..) {
-                    if let Some(si) = context.steppers_by_oid.get(&i) {
-                        info!("Stopping stepper {} for TrSync {}", i, oid);
-                        context.steppers[*si].lock(|s| {
-                            let mut s = s.borrow_mut();
-                            let s = s.deref_mut();
-                            s.stop();
-                        });
-                    }
+        if let Some(t) = context.trsync.get_mut(*i) {
+            for i in t.stepper_oids.drain(..) {
+                if let Some(si) = context.steppers_by_oid.get(&i) {
+                    info!("Stopping stepper {} for TrSync {}", i, oid);
+                    context.steppers[*si].stop();
                 }
-                if t.can_trigger {
-                    t.trigger_reason = reason;
-                    t.can_trigger = false;
-                }
-                t.timeout_clock = None;
-                t.report_clock = None;
-                t.report_ticks = None;
-                trsync_report(oid, 0, reason, 0);
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
-            });
+            }
+            if t.can_trigger {
+                t.trigger_reason = reason;
+                t.can_trigger = false;
+            }
+            t.timeout_clock = None;
+            t.report_clock = None;
+            t.report_ticks = None;
+            trsync_report(oid, 0, reason, 0);
+            crate::TRSYNC_WATCH.dyn_sender().send(0);
         }
     }
 }

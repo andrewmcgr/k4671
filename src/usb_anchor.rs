@@ -3,11 +3,11 @@ use crate::{KLIPPER_TRANSPORT, LED_STATE};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
 use embassy_futures::join::join;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either5, select, select5};
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
-use embassy_time::Timer;
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, ControlChanged, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
@@ -73,8 +73,6 @@ impl UsbAnchor {
         in_pipe: &'d AnchorPipe,
         out_pipe: &'d AnchorPipe,
         driver: D,
-        steppers: &'static [crate::ProtectedEmulatedStepper; crate::NUM_STEPPERS],
-        trsync: &'static [crate::ProtectedTrSync; crate::NUM_TRSYNC],
     ) -> !
     where
         D: Driver<'d>,
@@ -105,15 +103,8 @@ impl UsbAnchor {
         let mut device = builder.build();
         loop {
             let run_fut = device.run();
-            let class_fut = self.run_anchor_class(
-                in_pipe,
-                out_pipe,
-                &mut sender,
-                &mut receiver,
-                &mut control,
-                steppers,
-                trsync,
-            );
+            let class_fut =
+                self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver, &mut control);
             join(run_fut, class_fut).await;
         }
     }
@@ -125,8 +116,6 @@ impl UsbAnchor {
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,
         control: &mut ControlChanged<'d>,
-        steppers: &'static [crate::ProtectedEmulatedStepper; crate::NUM_STEPPERS],
-        trsync: &'static [crate::ProtectedTrSync; crate::NUM_TRSYNC],
     ) where
         D: Driver<'d>,
     {
@@ -146,41 +135,73 @@ impl UsbAnchor {
         };
         let mut reciever_fut = async || -> Result<(), Disconnected> {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
-            let mut state = crate::State::new(steppers, trsync);
+            let mut state = crate::State::new();
+            let tmc_sender = &crate::TMC_CMD;
+            let mut trsync_receiver = crate::TRSYNC_WATCH.receiver().unwrap();
+            let mut trsync_ticks = Instant::MAX;
 
             type RxBuf = FifoBuffer<{ MAX_PACKET_SIZE as usize * 2 }>;
             let mut rx_buf: RxBuf = RxBuf::new();
             receiver.wait_connection().await;
+
+            let mut move_ticker = Ticker::every(Duration::from_micros(500));
+
             loop {
-                let res = select(
+                let res = select5(
                     receiver.read_packet(&mut reciever_buf),
                     control.control_changed(),
+                    move_ticker.next(),
+                    trsync_receiver.changed(),
+                    Timer::at(trsync_ticks),
                 )
                 .await;
-                let len = match res {
-                    Either::First(Err(e)) => return Err(e.into()),
-                    Either::First(Ok(len)) => len,
-                    Either::Second(_) => {
+                match res {
+                    // USB disconnect
+                    Either5::First(Err(e)) => return Err(e.into()),
+                    // Received data
+                    Either5::First(Ok(len)) => {
+                        debug!("Anchor In {:x}", &reciever_buf[..len]);
+                        rx_buf.extend(&reciever_buf[..len]);
+                        if !rx_buf.is_empty() {
+                            let mut wrap = SliceInputBuffer::new(rx_buf.data());
+                            KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
+                            let consumed = rx_buf.len() - wrap.available();
+                            rx_buf.pop(consumed);
+                        }
+                    }
+                    // DFU request
+                    Either5::Second(_) => {
                         if receiver.line_coding().data_rate() == 1200 {
                             // Special case: 1200 baud on a CDC ACM port is the "signal to
                             // reboot to bootloader" in the Arduino world.
                             dfu::enter_dfu_mode();
                             // Unreachable, as enter_dfu_mode does not return.
                         }
-                        continue;
+                    }
+                    // Move ticker
+                    Either5::Third(_) => {
+                        for stepper in state.steppers.iter_mut() {
+                            if let Some(cmd) = crate::process_moves(
+                                stepper,
+                                Instant::now() + Duration::from_micros(1100),
+                            ) {
+                                tmc_sender.enqueue(cmd).ok();
+                            }
+                        }
+                    }
+                    // TrSync state changed or timer expired
+                    Either5::Fourth(_) | Either5::Fifth(_) => {
+                        trsync_ticks = Instant::MAX;
+                        for t in state.trsync.iter_mut() {
+                            if let Some(oid) = t.oid {
+                                let time = t.process_trsync(oid);
+                                if time < trsync_ticks {
+                                    trsync_ticks = time;
+                                }
+                            }
+                        }
                     }
                 };
-                debug!("Anchor In {:x}", &reciever_buf[..len]);
-                rx_buf.extend(&reciever_buf[..len]);
-                if !rx_buf.is_empty() {
-                    let mut wrap = SliceInputBuffer::new(rx_buf.data());
-                    // let _lck = ANCHOR_MUTEX.lock().await;
-                    KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
-                    let consumed = rx_buf.len() - wrap.available();
-                    rx_buf.pop(consumed);
-                    // yield_now().await;
-                    Timer::after_micros(10).await;
-                }
             }
         };
 

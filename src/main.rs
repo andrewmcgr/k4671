@@ -5,25 +5,20 @@ use cortex_m::peripheral::DWT;
 use cortex_m_rt::entry;
 
 use assign_resources::assign_resources;
-use core::cell::RefCell;
-use core::ops::DerefMut;
 use core::sync::atomic::{AtomicU32, Ordering};
 use defmt::*;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::{InterruptExecutor, Metadata};
-use embassy_futures::select::select;
 pub use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
-use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
-use static_cell::StaticCell;
 
 use heapless::{LinearMap, Vec};
 
@@ -42,17 +37,12 @@ use crate::leds::{blink_errled, blink_focled, blink_led};
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 1024>;
-pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
-pub type ProtectedTrSync = CriticalSectionMutex<RefCell<TrSync>>;
 
 const NUM_STEPPERS: usize = 1;
-static STEPPER_POOL: StaticCell<[ProtectedEmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
-static STEPPERS: StaticCell<&'static [ProtectedEmulatedStepper; NUM_STEPPERS]> = StaticCell::new();
 
 const NUM_TRSYNC: usize = 8;
-static TRSYNC_POOL: StaticCell<[ProtectedTrSync; NUM_TRSYNC]> = StaticCell::new();
-static TRSYNC: StaticCell<&'static [ProtectedTrSync; NUM_TRSYNC]> = StaticCell::new();
-pub static TRSYNC_WATCH: Watch<CriticalSectionRawMutex, usize, 2> = Watch::new();
+
+pub static TRSYNC_WATCH: Watch<CriticalSectionRawMutex, u32, 2> = Watch::new();
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -108,7 +98,7 @@ klipper_enumeration!(
     }
 );
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TrSync {
     oid: Option<u8>,
     report_clock: Option<Instant>,
@@ -134,7 +124,7 @@ impl TrSync {
         }
     }
 
-    fn process_trsync(self: &mut TrSync, oid: u8) -> Option<Instant> {
+    fn process_trsync(self: &mut TrSync, oid: u8) -> Instant {
         // trsync processing
         let mut rv = Instant::MAX;
         if let Some(report_clock) = self.report_clock {
@@ -175,10 +165,8 @@ impl TrSync {
                     }
                 }
             } else {
-                if let Some(next) = self.report_clock {
-                    if next < rv {
-                        rv = next;
-                    }
+                if report_clock < rv {
+                    rv = report_clock;
                 }
             }
         }
@@ -199,81 +187,35 @@ impl TrSync {
                     self.trigger_reason = self.expire_reason;
                     stepper_commands::trsync_report(oid, 0, self.expire_reason, now_clock32());
                 } else {
-                    if let Some(next) = self.timeout_clock {
-                        if next < rv {
-                            rv = next;
-                        }
+                    if timeout_clock < rv {
+                        rv = timeout_clock;
                     }
                 }
             }
         }
         info!("TrSync done {} returns {}", oid, rv);
-        return if rv == Instant::MAX { None } else { Some(rv) };
-    }
-}
-
-#[embassy_executor::task]
-async fn trsync_processing(trsync: &'static [ProtectedTrSync; NUM_TRSYNC]) {
-    let mut receiver = TRSYNC_WATCH.receiver().unwrap();
-    let sender = TRSYNC_WATCH.sender();
-    let mut ticks = Instant::MAX;
-
-    Metadata::for_current_task().await.set_priority(9);
-
-    loop {
-        // Wait for something to do
-        select(receiver.changed(), Timer::at(ticks)).await;
-
-        info!("TrSync wake");
-        for t in trsync.iter() {
-            t.lock(|t| {
-                let mut t = t.borrow_mut();
-                let t = t.deref_mut();
-                trace!("TrSync processing {}", t.oid);
-                if let Some(oid) = t.oid {
-                    if let Some(time) = t.process_trsync(oid)
-                        && time < ticks
-                    {
-                        info!("TrSync next candidate {} at {}", oid, time.as_ticks());
-                        ticks = time;
-                    }
-                }
-            });
-        }
-
-        if ticks != Instant::MAX {
-            info!("TrSync next at {}", ticks.as_ticks());
-        } else {
-            // Nothing to do, go back to sleep
-            info!("TrSync idle");
-            sender.send(0);
-            // Mark value seen so we don't wake immediately
-            let _ = receiver.get().await;
-        }
+        return rv;
     }
 }
 
 pub struct State {
     config_crc: Option<u32>,
-    steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
+    steppers: [EmulatedStepper; NUM_STEPPERS],
     steppers_by_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     steppers_by_enable_oid: LinearMap<u8, usize, NUM_STEPPERS>,
     trsync_by_oid: LinearMap<u8, usize, NUM_TRSYNC>,
-    trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
+    trsync: [TrSync; NUM_TRSYNC],
 }
 
 impl State {
-    pub fn new(
-        steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
-        trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
             config_crc: None,
-            steppers,
+            steppers: [EmulatedStepper::new(tmc4671::TMCTimeIterator::new()); NUM_STEPPERS],
             steppers_by_oid: LinearMap::new(),
             steppers_by_enable_oid: LinearMap::new(),
             trsync_by_oid: LinearMap::new(),
-            trsync,
+            trsync: [(); NUM_TRSYNC].map(|_| TrSync::new()),
         }
     }
 }
@@ -305,16 +247,11 @@ pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 
 fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tmc4671::TMCCommand> {
-    // static mut LAST_POS: i32 = 0;
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
         position_2: _c2,
     } = stepper.target_queue.get_for_control(next_time);
-    // if target_position != unsafe { LAST_POS } {
-    //     trace!("Target pos {} {}", target_position, next_time.as_ticks());
-    //     unsafe { LAST_POS = target_position };
-    // }
 
     let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
     // let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
@@ -349,32 +286,8 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
 }
 
 #[embassy_executor::task]
-async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
-    let mut ticker = Ticker::every(Duration::from_micros(500));
-    let sender = &TMC_CMD;
-
-    Metadata::for_current_task().await.set_priority(6);
-
-    loop {
-        // Move processing
-        for stepper in steppers.iter() {
-            if let Some(cmd) = stepper.lock(|s| -> Option<tmc4671::TMCCommand> {
-                let mut s = s.borrow_mut();
-                let s = s.deref_mut();
-                process_moves(s, Instant::now() + Duration::from_micros(1100))
-            }) {
-                sender.enqueue(cmd).ok();
-            }
-        }
-        ticker.next().await
-    }
-}
-
-#[embassy_executor::task]
 async fn usb_comms(
     r: UsbResources,
-    steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS],
-    trsync: &'static [ProtectedTrSync; NUM_TRSYNC],
 ) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 2048];
@@ -383,7 +296,6 @@ async fn usb_comms(
     // Enable VBUS detection, OpenFFBoard requires it.
     config.vbus_detection = true;
 
-    // Timer::after_millis(100).await;
     info!("Hello USB!");
 
     Metadata::for_current_task().await.set_priority(8);
@@ -398,8 +310,6 @@ async fn usb_comms(
         &in_pipe,
         &USB_OUT_BUFFER,
         driver,
-        steppers,
-        trsync,
     );
     anchor_fut.await;
 }
@@ -429,15 +339,11 @@ async fn tmc_task(r: TmcResources) {
     let spi_bus = usb_anchor::AnchorMutex::new(spi);
     let cs = Output::new(r.cs, Level::High, Speed::VeryHigh);
     let enable = Output::new(r.enable, Level::High, Speed::VeryHigh);
-    // let flag = Input::new(r.flag, Pull::Up);
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
     let mut tmc = tmc4671::TMC4671Async::new_spi(
-        spi_dev,
-        &TMC_CMD,
-        // TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
+        spi_dev, &TMC_CMD,
         enable,
-        // flag,
         brake,
     );
     LED_STATE.signal(LedState::Error);
@@ -498,7 +404,6 @@ async fn stats() {
         if now > (last_stats + (CLOCK_FREQ * 5)) {
             sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
             {
-                // let _lck = ANCHOR_MUTEX.lock().await;
                 klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
                     u32::MAX
                 } else {
@@ -544,17 +449,6 @@ fn main() -> ! {
 
     let r = split_resources!(p);
 
-    let stepper_pool = STEPPER_POOL.init([(); NUM_STEPPERS].map(|_| {
-        CriticalSectionMutex::new(RefCell::new(stepper::EmulatedStepper::new(
-            tmc4671::TMCTimeIterator::new(),
-        )))
-    }));
-    let steppers = STEPPERS.init(stepper_pool);
-
-    let trsync_pool = TRSYNC_POOL
-        .init([(); NUM_TRSYNC].map(|_| CriticalSectionMutex::new(RefCell::new(TrSync::new()))));
-    let trsync = TRSYNC.init(trsync_pool);
-
     // Enable the DWT cycle counter.
     {
         let mut peripherals = cortex_m::Peripherals::take().unwrap();
@@ -581,7 +475,6 @@ fn main() -> ! {
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
     spawner.spawn(blink_focled().expect("Spawn failure"));
-    spawner.spawn(move_processing(steppers).expect("Spawn failure"));
     spawner.spawn(stats().expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
@@ -595,9 +488,8 @@ fn main() -> ! {
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
-    spawner.spawn(usb_comms(r.usb, steppers, trsync).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
     spawner.spawn(blink_led().expect("Spawn failure"));
-    spawner.spawn(trsync_processing(trsync).expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

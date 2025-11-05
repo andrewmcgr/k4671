@@ -2,8 +2,6 @@ use anchor::*;
 use cortex_m::peripheral::DWT;
 use defmt::*;
 
-use core::ops::DerefMut;
-
 use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
@@ -67,11 +65,11 @@ pub fn get_clock() {
 }
 
 #[klipper_command]
-pub fn emergency_stop(context: &State) {
+pub fn emergency_stop(context: &mut State) {
     debug!("EMERGENCY STOP");
     LED_STATE.signal(crate::LedState::Error);
     for i in 0..context.steppers.len() {
-        context.steppers[i].lock(|s| s.borrow_mut().deref_mut().stop());
+        context.steppers[i].stop();
     }
 }
 
@@ -113,7 +111,7 @@ const MCU: &str = "k4671_openffboard";
 pub const STATS_SUMSQ_BASE: u32 = 256;
 
 #[klipper_constant]
-const RECEIVE_WINDOW: u32 = 1024;
+const RECEIVE_WINDOW: u32 = 256;
 
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}
