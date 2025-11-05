@@ -10,7 +10,7 @@ use registers::*;
 use embassy_time::{Duration, Instant, Timer};
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use embassy_sync::{channel, pubsub};
+use heapless::mpmc::Queue;
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
 
@@ -18,14 +18,9 @@ use core::f32::math::round;
 use fixed::types::{I4F12, I8F8};
 use paste::paste;
 
-pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-
-pub type TMCCommandChannel = channel::Channel<CS, TMCCommand, 128>;
-pub type TMCCommandSender<'a> = channel::DynamicSender<'a, TMCCommand>;
-pub type TMCCommandReceiver<'a> = channel::DynamicReceiver<'a, TMCCommand>;
-pub type TMCResponseBus = pubsub::PubSubChannel<CS, TMCCommandResponse, 1, 1, 1>;
-pub type TMCResponsePublisher<'a> = pubsub::DynPublisher<'a, TMCCommandResponse>;
-pub type TMCResponseSubscriber<'a> = pubsub::DynSubscriber<'a, TMCCommandResponse>;
+pub type TMCCommandChannel = Queue<TMCCommand, 128>;
+pub type TMCCommandSender = TMCCommandChannel;
+pub type TMCCommandReceiver = TMCCommandChannel;
 
 pub mod biquad;
 pub mod config;
@@ -148,7 +143,7 @@ where
     enabled: bool,
     /// The interface to communicate with the device
     interface: I,
-    command_rx: TMCCommandReceiver<'a>,
+    command_rx: &'a TMCCommandReceiver,
     // response_tx: TMCResponsePublisher<'a>,
     enable_pin: O,
     // flag_pin: P,
@@ -188,7 +183,7 @@ where
     #[inline]
     pub fn new_spi(
         spi: I,
-        command_rx: TMCCommandReceiver<'a>,
+        command_rx: &'a TMCCommandReceiver,
         // response_tx: TMCResponsePublisher<'a>,
         enable_pin: O,
         // flag_pin: P,
@@ -197,7 +192,7 @@ where
         Self {
             enabled: false,
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
-            command_rx: command_rx,
+            command_rx: &command_rx,
             // response_tx: response_tx,
             enable_pin: enable_pin,
             // flag_pin: flag_pin,
@@ -1031,7 +1026,7 @@ where
             // trace!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
             // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
             // trace!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
-            while let Some(cmd) = self.command_rx.try_receive().ok() {
+            while let Some(cmd) = self.command_rx.dequeue() {
                 match cmd {
                     TMCCommand::Enable => {
                         debug!("TMC Command {}", cmd);
@@ -1045,7 +1040,7 @@ where
                     }
                     TMCCommand::Stop => {
                         debug!("TMC Command {}", cmd);
-                        while let Some(_) = self.command_rx.try_receive().ok() {
+                        while let Some(_) = self.command_rx.dequeue() {
                             // Drain any pending commands
                         }
                     }

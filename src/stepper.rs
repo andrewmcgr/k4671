@@ -305,7 +305,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.queue.clear();
         self.target_queue.clear();
         self.current_move = None;
-        TMC_CMD.sender().try_send(TMCCommand::Stop).ok();
+        TMC_CMD.enqueue(TMCCommand::Stop).ok();
     }
 
     pub fn set_next_dir(&mut self, dir: Direction) {
@@ -339,7 +339,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             TMCCommand::Disable
         };
         info!("ES set_enabled {}", cmd);
-        TMC_CMD.sender().try_send(cmd).ok();
+        TMC_CMD.enqueue(cmd).ok();
         self.enabled = enabled;
     }
 }

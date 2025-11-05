@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 embedded-devices-derive = { git = "https://github.com/oddlama/embedded-devices" }
 embedded-interfaces = { git = "https://github.com/oddlama/embedded-devices" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
 embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = [
     "defmt",
     "defmt-timestamp-uptime",
@@ -28,6 +27,8 @@ maybe-async-cfg = "0.2"
 paste = "1.0"
 fixed = "1.29"
 num-traits = { version = "0.2", features = ["libm"], default-features = false }
+heapless = { version = "0.9", default-features = false , features = ["defmt"]}
+oneshot = { version = "0.1.11", default-features = false, features = ["async"] }
 
 [features]
 default = ["async"]

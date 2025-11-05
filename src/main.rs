@@ -28,7 +28,7 @@ use static_cell::StaticCell;
 use heapless::{LinearMap, Vec};
 
 use anchor::*;
-use tmc4671::{self, CS, config::TMC4671Config};
+use tmc4671::{self, config::TMC4671Config};
 use {defmt_rtt as _, panic_probe as _};
 mod commands;
 mod leds;
@@ -38,6 +38,8 @@ mod target_queue;
 mod usb_anchor;
 use crate::commands::{CLOCK_FREQ, now_clock32};
 use crate::leds::{blink_errled, blink_focled, blink_led};
+
+pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 1024>;
 pub type ProtectedEmulatedStepper = CriticalSectionMutex<RefCell<EmulatedStepper>>;
@@ -301,7 +303,6 @@ impl TransportOutput for BufferTransportOutput {
 pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput;
 
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
-pub static TMC_RESP: tmc4671::TMCResponseBus = tmc4671::TMCResponseBus::new();
 
 fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tmc4671::TMCCommand> {
     // static mut LAST_POS: i32 = 0;
@@ -350,7 +351,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
 #[embassy_executor::task]
 async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPPERS]) {
     let mut ticker = Ticker::every(Duration::from_micros(500));
-    let sender = TMC_CMD.sender();
+    let sender = &TMC_CMD;
 
     Metadata::for_current_task().await.set_priority(6);
 
@@ -362,7 +363,7 @@ async fn move_processing(steppers: &'static [ProtectedEmulatedStepper; NUM_STEPP
                 let s = s.deref_mut();
                 process_moves(s, Instant::now() + Duration::from_micros(1100))
             }) {
-                sender.try_send(cmd).ok();
+                sender.enqueue(cmd).ok();
             }
         }
         ticker.next().await
@@ -433,7 +434,7 @@ async fn tmc_task(r: TmcResources) {
     let spi_dev = SpiDevice::new(&spi_bus, cs);
     let mut tmc = tmc4671::TMC4671Async::new_spi(
         spi_dev,
-        TMC_CMD.dyn_receiver(),
+        &TMC_CMD,
         // TMC_RESP.dyn_publisher().expect("Initialisation Failure"),
         enable,
         // flag,
