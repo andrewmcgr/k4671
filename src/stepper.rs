@@ -1,26 +1,10 @@
 use crate::TMC_CMD;
 use defmt::*;
-use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_time::{Duration, Instant};
 use heapless::Deque;
 use tmc4671::*;
 
-#[derive(Debug)]
-pub struct MutexWrapper;
-
-impl crate::target_queue::Mutex for MutexWrapper {
-    type Inner<T> = CriticalSectionMutex<T>;
-
-    fn new<T>(val: T) -> Self::Inner<T> {
-        CriticalSectionMutex::new(val)
-    }
-
-    fn lock<T, R>(inner: &Self::Inner<T>, f: impl FnOnce(&T) -> R) -> R {
-        inner.lock(f)
-    }
-}
-
-pub type TargetQueue = crate::target_queue::TargetQueue<MutexWrapper, 200>;
+pub type TargetQueue = crate::target_queue::TargetQueue<200>;
 
 #[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Direction {

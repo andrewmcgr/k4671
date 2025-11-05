@@ -43,23 +43,23 @@ impl<const N: usize> TargetQueue<N> {
         self.queue.is_full()
     }
 
-    pub fn clear(&self) {
+    pub fn clear(&mut self) {
        self.queue.clear();
     }
 
-    fn append(&self, time: Instant, value: u32) {
+    fn append(&mut self, time: Instant, value: u32) {
         self.queue.push_back((time, value)).ok();
         self.last_value = value;
     }
 
-    fn update_last(&self, _time: Instant, value: u32) {
-        if let Some(&mut v) = self.queue.back_mut() {
-            v = value;
+    fn update_last(&mut self, time: Instant, value: u32) {
+        if let Some(v) = self.queue.back_mut() {
+            *v = (time, value);
         }
         self.last_value = value;
     }
 
-    pub fn get_for_control(&self, time: Instant) -> ControlOutput {
+    pub fn get_for_control(&mut self, time: Instant) -> ControlOutput {
             let last = self.last_value as i32;
 
             // Remove from front such that the next item will be read now
