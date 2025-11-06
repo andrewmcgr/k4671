@@ -2,7 +2,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
 use defmt::*;
 
-use crate::{LED_STATE, LedState, commands::maintain_clock};
+use crate::{LED_STATE, LedState};
 
 // pub async fn blink_one_generic<T: Pin>(led: embassy_stm32::Peri<'static, T>) {
 //     let mut led = Output::new(led, Level::High, Speed::Low);
@@ -44,7 +44,6 @@ pub async fn blink(r: crate::LedResources) {
     let mut errled = Output::new(r.errled, Level::High, Speed::Low);
     let mut current = LedState::Error;
     loop {
-        maintain_clock();
         if let Some(newstate) = LED_STATE.try_take() {
             current = newstate;
         }

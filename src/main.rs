@@ -2,7 +2,7 @@
 #![no_main]
 
 use cortex_m::peripheral::DWT;
-use cortex_m_rt::entry;
+use cortex_m_rt::{entry, exception};
 
 use assign_resources::assign_resources;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -19,7 +19,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
-
 use heapless::{LinearMap, Vec};
 
 use anchor::*;
@@ -31,9 +30,10 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{CLOCK_FREQ, now_clock32};
+use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, now_clock32, TIMER};
 use crate::leds::blink;
 // use crate::leds::{blink_errled, blink_focled, blink_led};
+
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -287,9 +287,7 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
 }
 
 #[embassy_executor::task]
-async fn usb_comms(
-    r: UsbResources,
-) {
+async fn usb_comms(r: UsbResources) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 2048];
     let mut config = embassy_stm32::usb::Config::default();
@@ -306,12 +304,7 @@ async fn usb_comms(
     let mut state = usb_anchor::AnchorState::new();
     let in_pipe = usb_anchor::AnchorPipe::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
-    let anchor_fut = anchor.run(
-        &mut state,
-        &in_pipe,
-        &USB_OUT_BUFFER,
-        driver,
-    );
+    let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
     anchor_fut.await;
 }
 
@@ -342,11 +335,7 @@ async fn tmc_task(r: TmcResources) {
     let enable = Output::new(r.enable, Level::High, Speed::VeryHigh);
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
-    let mut tmc = tmc4671::TMC4671Async::new_spi(
-        spi_dev, &TMC_CMD,
-        enable,
-        brake,
-    );
+    let mut tmc = tmc4671::TMC4671Async::new_spi(spi_dev, &TMC_CMD, enable, brake);
     LED_STATE.signal(LedState::Error);
     Timer::after_millis(300).await;
 
@@ -367,20 +356,29 @@ static EXECUTOR_LOW: InterruptExecutor = InterruptExecutor::new();
 
 #[interrupt]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[allow(non_snake_case)]
 unsafe fn UART4() {
     EXECUTOR_HIGH.on_interrupt()
 }
 
 #[interrupt]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[allow(non_snake_case)]
 unsafe fn UART5() {
     EXECUTOR_MED.on_interrupt()
 }
 
 #[interrupt]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[allow(non_snake_case)]
 unsafe fn USART3() {
     EXECUTOR_LOW.on_interrupt()
+}
+
+#[exception]
+#[allow(unsafe_op_in_unsafe_fn)]
+unsafe fn SysTick() {
+    TIMER.systick_handler();
 }
 
 #[embassy_executor::task]
@@ -450,12 +448,14 @@ fn main() -> ! {
 
     let r = split_resources!(p);
 
-    // Enable the DWT cycle counter.
+    // Enable the DWT cycle counter and systick time driver
     {
         let mut peripherals = cortex_m::Peripherals::take().unwrap();
         peripherals.DCB.enable_trace();
         DWT::unlock();
         peripherals.DWT.enable_cycle_counter();
+
+        TIMER.start(&mut peripherals.SYST);
     }
 
     info!("Hello World! {}", DWT::cycle_count());

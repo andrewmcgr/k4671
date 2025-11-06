@@ -1,53 +1,85 @@
 use anchor::*;
-use cortex_m::peripheral::DWT;
+// use cortex_m::peripheral::DWT;
 use defmt::*;
 
 use crate::LED_STATE;
 use crate::LedState::Connected;
 use crate::State;
-use embassy_time::{TICK_HZ, Instant};
-use core::sync::atomic::{AtomicU32, Ordering};
+// use core::sync::atomic::{AtomicU32, Ordering};
+use embassy_time::{Instant, TICK_HZ};
 
-static TICKS_HIGH: AtomicU32 = AtomicU32::new(0);
-static TICKS_LAST: AtomicU32 = AtomicU32::new(0);
+// static TICKS_HIGH: AtomicU32 = AtomicU32::new(0);
+// static TICKS_LAST: AtomicU32 = AtomicU32::new(0);
 
-pub fn now_clock32() -> u32 {
-    let ticks = DWT::cycle_count();
-    ticks
-}
+// pub fn now_clock32() -> u32 {
+//     let ticks = DWT::cycle_count();
+//     ticks
+// }
 
-pub fn maintain_clock() -> u32 {
-    let ticks = DWT::cycle_count();
-    if ticks < TICKS_LAST.load(Ordering::Acquire) {
-        TICKS_HIGH.fetch_add(1, Ordering::Release);
-    }
-    TICKS_LAST.store(ticks, Ordering::Release);
-    ticks
-}
+// pub fn maintain_clock() -> u32 {
+//     let ticks = DWT::cycle_count();
+//     if ticks < TICKS_LAST.load(Ordering::Acquire) {
+//         TICKS_HIGH.fetch_add(1, Ordering::Release);
+//     }
+//     TICKS_LAST.store(ticks, Ordering::Release);
+//     ticks
+// }
 
-pub fn now_clock64() -> u64 {
-    let ticks = now_clock32();
-    ticks as u64 + ((TICKS_HIGH.load(Ordering::Acquire) as u64) << 32)
-}
+// pub fn now_clock64() -> u64 {
+//     let ticks = now_clock32();
+//     ticks as u64 + ((TICKS_HIGH.load(Ordering::Acquire) as u64) << 32)
+// }
 
-pub fn clock32_to_64(clock32: u32) -> Instant {
-    let now = now_clock64();
-    let high: u32 = (now >> 32) as u32;
-    Instant::from_ticks((clock32 as u64 + ((high as u64) << 32)) / TICKS_TO_CLOCK)
-}
+// pub fn clock32_to_64(clock32: u32) -> Instant {
+//     let now = now_clock64();
+//     let high: u32 = (now >> 32) as u32;
+//     Instant::from_ticks((clock32 as u64 + ((high as u64) << 32)) / TICKS_TO_CLOCK)
+// }
 
 pub fn clock32_to_ticks(clock32: u32) -> u32 {
     clock32 / TICKS_TO_CLOCK as u32
 }
 
-#[klipper_constant]
-#[expect(non_upper_case_globals)]
-const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
+pub static TIMER: systick_timer::Timer =
+    systick_timer::Timer::new(crate::CLOCK_FREQ_U64, 16_777_215, crate::CLOCK_FREQ_U64);
 
 #[klipper_constant]
 pub const CLOCK_FREQ: u32 = 168_000_000;
 
-pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ as u64 / TICK_HZ;
+pub const CLOCK_FREQ_U64: u64 = CLOCK_FREQ as u64;
+
+pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ_U64 / TICK_HZ;
+
+// #[klipper_constant]
+// pub const CLOCK_FREQ: u32 = 48_000_000;
+
+pub fn now_clock32() -> u32 {
+    TIMER.now() as u32
+}
+
+pub fn now_clock64() -> u64 {
+    TIMER.now()
+}
+
+pub fn clock32_to_64(clock32: u32) -> Instant {
+    let current_time = now_clock64();
+    let diff = (current_time as u32).wrapping_sub(clock32) as u64;
+    Instant::from_ticks(if diff & 0x8000_0000 != 0 {
+        current_time + 0x1_0000_0000 - diff
+    } else {
+        current_time - diff
+    } / TICKS_TO_CLOCK)
+}
+
+
+// pub fn clock32_to_64(clock32: u32) -> Instant {
+//     let high = now_clock64() >> 32;
+//     Instant::from_ticks(clock32 as u64 + (high << 32))
+// }
+
+#[klipper_constant]
+#[expect(non_upper_case_globals)]
+const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";
 
 #[klipper_command]
 pub fn get_uptime() {
