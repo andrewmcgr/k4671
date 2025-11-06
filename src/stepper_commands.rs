@@ -198,7 +198,7 @@ pub fn trsync_start(
         if let Some(t) = context.trsync.get_mut(*i) {
             info!("TrSync starting for {}", oid);
             t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
-            t.report_clock = if report_clock != 0 {
+            t.report_clock = if report_ticks != 0 {
                 Some(clock32_to_64(report_clock))
             } else {
                 None
@@ -207,7 +207,9 @@ pub fn trsync_start(
             t.can_trigger = true;
             t.expire_reason = expire_reason;
             t.timeout_clock = None;
-            crate::TRSYNC_WATCH.dyn_sender().send(1);
+            if report_ticks != 0 {
+                crate::TRSYNC_WATCH.dyn_sender().send(1);
+            }
         };
     }
 }
