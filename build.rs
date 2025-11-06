@@ -1,4 +1,7 @@
 use anchor_codegen::ConfigBuilder;
+use std::process::Command;
+use std::env;
+use std::path::Path;
 
 fn main() {
     ConfigBuilder::new()
@@ -10,4 +13,7 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+        Command::new("gcc").args(&["src/hello.c", "-c", "-fPIC", "-o"])
+                       .arg(&format!("{}/hello.o", out_dir))
+                       .status().unwrap();
 }

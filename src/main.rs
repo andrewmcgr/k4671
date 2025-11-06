@@ -32,7 +32,8 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::commands::{CLOCK_FREQ, now_clock32};
-use crate::leds::{blink_errled, blink_focled, blink_led};
+use crate::leds::blink;
+// use crate::leds::{blink_errled, blink_focled, blink_led};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -54,11 +55,11 @@ bind_interrupts!(struct Irqs {
 });
 
 assign_resources! {
-    // led: LedResources {
-    //     led: PD7,
-    //     focled: PE0,
-    //     errled: PE1,
-    // }
+    led: LedResources {
+        led: PD7,
+        focled: PE0,
+        errled: PE1,
+    }
     tmc: TmcResources {
         miso: PA6,
         mosi: PA7,
@@ -474,13 +475,14 @@ fn main() -> ! {
     */
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
-    spawner.spawn(blink_focled().expect("Spawn failure"));
+    // spawner.spawn(blink_focled().expect("Spawn failure"));
     spawner.spawn(stats().expect("Spawn failure"));
+    spawner.spawn(blink(r.led).expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    spawner.spawn(blink_errled().expect("Spawn failure"));
+    // spawner.spawn(blink_errled().expect("Spawn failure"));
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     /*
@@ -489,7 +491,7 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
-    spawner.spawn(blink_led().expect("Spawn failure"));
+    // spawner.spawn(blink_led().expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

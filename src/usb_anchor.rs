@@ -13,6 +13,8 @@ use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 
+
+
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -129,8 +131,6 @@ impl UsbAnchor {
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await?;
                 }
-                Timer::after_micros(10).await;
-                // yield_now().await;
             }
         };
         let mut reciever_fut = async || -> Result<(), Disconnected> {
@@ -183,7 +183,7 @@ impl UsbAnchor {
                         for stepper in state.steppers.iter_mut() {
                             if let Some(cmd) = crate::process_moves(
                                 stepper,
-                                Instant::now() + Duration::from_micros(1100),
+                                Instant::now() + Duration::from_micros(750),
                             ) {
                                 tmc_sender.enqueue(cmd).ok();
                             }

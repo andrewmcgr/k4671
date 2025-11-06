@@ -199,7 +199,7 @@ pub fn trsync_start(
             info!("TrSync starting for {}", oid);
             t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
             t.report_clock = if report_clock != 0 {
-                Some(clock32_to_64(report_clock) + t.report_ticks.unwrap_or_default())
+                Some(clock32_to_64(report_clock))
             } else {
                 None
             };

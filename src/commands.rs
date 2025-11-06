@@ -13,6 +13,11 @@ static TICKS_LAST: AtomicU32 = AtomicU32::new(0);
 
 pub fn now_clock32() -> u32 {
     let ticks = DWT::cycle_count();
+    ticks
+}
+
+pub fn maintain_clock() -> u32 {
+    let ticks = DWT::cycle_count();
     if ticks < TICKS_LAST.load(Ordering::Acquire) {
         TICKS_HIGH.fetch_add(1, Ordering::Release);
     }
