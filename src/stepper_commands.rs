@@ -1,7 +1,7 @@
 use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::commands::{clock32_to_64, clock32_to_ticks};
+use crate::commands::{clock32_to_instant, clock32_to_ticks};
 use crate::stepper::Direction;
 use embassy_time::Duration;
 
@@ -63,7 +63,7 @@ pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         info!("Reset step clock {} {}", oid, clock);
-        context.steppers[*i].reset_clock(clock32_to_64(clock));
+        context.steppers[*i].reset_clock(clock32_to_instant(clock));
     } else {
         warn!("No OID match");
     }
@@ -199,7 +199,7 @@ pub fn trsync_start(
             info!("TrSync starting for {}", oid);
             t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
             t.report_clock = if report_ticks != 0 {
-                Some(clock32_to_64(report_clock))
+                Some(clock32_to_instant(report_clock))
             } else {
                 None
             };
@@ -219,7 +219,7 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
     info!("TrSync set timeout {} {}", oid, clock);
     if let Some(i) = context.trsync_by_oid.get(&oid) {
         if let Some(t) = context.trsync.get_mut(*i) {
-            t.timeout_clock = Some(clock32_to_64(clock));
+            t.timeout_clock = Some(clock32_to_instant(clock));
             crate::TRSYNC_WATCH.dyn_sender().send(clock);
         }
     }

@@ -37,7 +37,7 @@ use embassy_time::{Instant, TICK_HZ};
 // }
 
 pub fn clock32_to_ticks(clock32: u32) -> u32 {
-    clock32 / TICKS_TO_CLOCK as u32
+    clock32 / CLOCKS_PER_TICK as u32
 }
 
 pub static TIMER: systick_timer::Timer =
@@ -48,7 +48,7 @@ pub const CLOCK_FREQ: u32 = 168_000_000;
 
 pub const CLOCK_FREQ_U64: u64 = CLOCK_FREQ as u64;
 
-pub const TICKS_TO_CLOCK: u64 = CLOCK_FREQ_U64 / TICK_HZ;
+pub const CLOCKS_PER_TICK: u64 = CLOCK_FREQ_U64 / TICK_HZ;
 
 // #[klipper_constant]
 // pub const CLOCK_FREQ: u32 = 48_000_000;
@@ -61,14 +61,14 @@ pub fn now_clock64() -> u64 {
     TIMER.now()
 }
 
-pub fn clock32_to_64(clock32: u32) -> Instant {
+pub fn clock32_to_instant(clock32: u32) -> Instant {
     let current_time = now_clock64();
     let diff = (current_time as u32).wrapping_sub(clock32) as u64;
     Instant::from_ticks(if diff & 0x8000_0000 != 0 {
         current_time + 0x1_0000_0000 - diff
     } else {
         current_time - diff
-    } / TICKS_TO_CLOCK)
+    } / CLOCKS_PER_TICK)
 }
 
 

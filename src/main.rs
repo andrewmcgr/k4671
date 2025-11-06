@@ -30,10 +30,9 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, now_clock32, TIMER};
+use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, now_clock32};
 use crate::leds::blink;
 // use crate::leds::{blink_errled, blink_focled, blink_led};
-
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -156,6 +155,7 @@ impl TrSync {
                         while next <= now {
                             next += ticks;
                         }
+                        next += ticks;
                         self.report_clock = Some(next);
                         if next < rv {
                             rv = next;
@@ -324,6 +324,9 @@ pub static LED_STATE: Signal<CS, LedState> = Signal::new();
 async fn tmc_task(r: TmcResources) {
     info!("Hello TMC! {}", DWT::cycle_count());
 
+    LED_STATE.signal(LedState::Error);
+    Timer::after_millis(300).await;
+
     let mut spi_config = spi::Config::default();
     spi_config.mode = spi::MODE_3;
     spi_config.frequency = Hertz(2_000_000);
@@ -336,8 +339,6 @@ async fn tmc_task(r: TmcResources) {
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
     let mut tmc = tmc4671::TMC4671Async::new_spi(spi_dev, &TMC_CMD, enable, brake);
-    LED_STATE.signal(LedState::Error);
-    Timer::after_millis(300).await;
 
     let cfg = TMC4671Config::builder();
     match tmc.init(cfg.build()).await {
