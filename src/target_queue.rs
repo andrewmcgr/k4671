@@ -1,4 +1,4 @@
-use crate::stepper::Callbacks;
+use crate::{commands::{clock32_to_instant, instant_to_clock32}, stepper::Callbacks};
 use embassy_time::Instant;
 use heapless::Deque;
 
@@ -23,7 +23,7 @@ impl ControlOutput {
 
 #[derive(Debug)]
 pub struct TargetQueue<const N: usize> {
-    queue: Deque<(Instant, u32), N>,
+    queue: Deque<(u32, u32), N>,
     last_value: u32,
 }
 
@@ -49,12 +49,12 @@ impl<const N: usize> TargetQueue<N> {
        self.queue.clear();
     }
 
-    fn append(&mut self, time: Instant, value: u32) {
+    fn append(&mut self, time: u32, value: u32) {
         self.queue.push_back((time, value)).ok();
         self.last_value = value;
     }
 
-    fn update_last(&mut self, time: Instant, value: u32) {
+    fn update_last(&mut self, time: u32, value: u32) {
         if let Some(v) = self.queue.back_mut() {
             *v = (time, value);
         }
@@ -63,6 +63,7 @@ impl<const N: usize> TargetQueue<N> {
 
     pub fn get_for_control(&mut self, time: Instant) -> ControlOutput {
             let last = self.last_value as i32;
+            let time = instant_to_clock32(time);
 
             // Remove from front such that the next item will be read now
 
@@ -73,32 +74,32 @@ impl<const N: usize> TargetQueue<N> {
                 self.queue.pop_front();
             }
             if self.queue.is_empty() {
-                return ControlOutput::single(last, Some(time));
+                return ControlOutput::single(last, Some(clock32_to_instant(time)));
             }
             let mut iter = self.queue.iter();
             let v0 = iter.next().copied();
             let (t0, v0) = match v0 {
                 Some((t0, v0)) if t0 == time => (t0, v0),
-                _ => return ControlOutput::single(last, Some(time)),
+                _ => return ControlOutput::single(last, Some(clock32_to_instant(time))),
             };
             let v1 = iter.next().copied();
             let v2 = iter.next().copied();
             ControlOutput {
                 position: v0 as i32,
-                time: Some(t0),
-                position_1: v1.map(|(t, v)| (t, v as i32)),
-                position_2: v2.map(|(t, v)| (t, v as i32)),
+                time: Some(clock32_to_instant(t0)),
+                position_1: v1.map(|(t, v)| (clock32_to_instant(t), v as i32)),
+                position_2: v2.map(|(t, v)| (clock32_to_instant(t), v as i32)),
             }
         
     }
 }
 
 impl<const N: usize> Callbacks for TargetQueue<N> {
-    fn append(&mut self, time: Instant, value: u32) {
+    fn append(&mut self, time: u32, value: u32) {
         TargetQueue::append(self, time, value)
     }
 
-    fn update_last(&mut self, time: Instant, value: u32) {
+    fn update_last(&mut self, time: u32, value: u32) {
         TargetQueue::update_last(self, time, value)
     }
 

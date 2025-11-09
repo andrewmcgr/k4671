@@ -40,6 +40,16 @@ pub fn clock32_to_instant(clock32: u32) -> Instant {
     } / CLOCKS_PER_TICK)
 }
 
+pub fn duration_to_ticks(dur: embassy_time::Duration) -> u32 {
+    (dur.as_ticks() as u64 * TICK_HZ / CLOCK_FREQ_U64) as u32
+}
+
+pub fn instant_to_clock32(instant: Instant) -> u32 {
+    let ticks = instant.as_ticks() as u64;
+    let clocks = ticks * CLOCKS_PER_TICK;
+    (clocks & 0xFFFF_FFFF) as u32
+}
+
 #[klipper_constant]
 #[expect(non_upper_case_globals)]
 const BUS_PINS_spi1: &str = "spi1_miso,spi1_clk,spi1_mosi";

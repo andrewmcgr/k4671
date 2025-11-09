@@ -29,7 +29,7 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, now_clock32};
+use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, clock32_to_ticks, now_clock32};
 use crate::leds::{LED_STATE, LedState};
 // use crate::leds::{blink_errled, blink_focled, blink_led};
 
@@ -101,7 +101,7 @@ klipper_enumeration!(
 pub struct TrSync {
     oid: Option<u8>,
     report_clock: Option<Instant>,
-    report_ticks: Option<Duration>,
+    report_ticks: Option<u32>,
     expire_reason: u8,
     trigger_reason: u8,
     timeout_clock: Option<Instant>,
@@ -144,17 +144,17 @@ impl TrSync {
 
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
-                    if ticks > Duration::from_ticks(0) {
+                    if ticks > 0 {
                         info!(
                             "TrSync report {} now {} ticks {}",
                             oid,
                             now.as_ticks(),
-                            ticks.as_ticks()
+                            ticks
                         );
                         let mut next = report_clock;
                         if next < now {
-                            next = now
-                                + ticks * (1 + (now - next).as_ticks() / ticks.as_ticks()) as u32;
+                            next =
+                                now + Duration::from_ticks(clock32_to_ticks(ticks * ((now - next).as_ticks() as u32 / ticks)) as u64);
                         }
                         self.report_clock = Some(next);
                         if next < rv {
@@ -187,6 +187,7 @@ impl TrSync {
                     self.timeout_clock = None;
                     self.can_trigger = false;
                     self.trigger_reason = self.expire_reason;
+                    self.report_clock = None;
                     stepper_commands::trsync_report(oid, 0, self.expire_reason, now_clock32());
                 } else {
                     if timeout_clock < rv {
@@ -481,7 +482,7 @@ fn main() -> ! {
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(blink_errled().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
@@ -490,7 +491,7 @@ fn main() -> ! {
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     // spawner.spawn(blink_led().expect("Spawn failure"));
     // spawner.spawn(blink(r.led).expect("Spawn failure"));
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

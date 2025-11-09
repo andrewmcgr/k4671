@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use defmt::*;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_time::{Duration, Ticker, Timer};
+use embassy_time::{Duration, Ticker};
 
 // pub async fn blink_one_generic<T: Pin>(led: embassy_stm32::Peri<'static, T>) {
 //     let mut led = Output::new(led, Level::High, Speed::Low);

@@ -10,9 +10,9 @@ use registers::*;
 use embassy_time::{Duration, Instant, Timer};
 
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
-use heapless::mpmc::Queue;
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
+use heapless::mpmc::Queue;
 
 use core::f32::math::round;
 use fixed::types::{I4F12, I8F8};
@@ -36,6 +36,7 @@ const VM_RANGE: u16 = round(32767.0 / 1.25) as u16;
 pub trait TimeIterator {
     fn next(&mut self) -> Instant;
     fn advance(&mut self) -> Instant;
+    fn advance_to(&mut self, t: Instant) -> Instant;
 }
 
 #[derive(Debug, defmt::Format)]
@@ -48,7 +49,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(5000),
+            advance: Duration::from_hz(500),
         }
     }
 
@@ -67,6 +68,14 @@ impl TimeIterator for TMCTimeIterator {
         while self.next <= Instant::now() {
             self.next += self.advance;
         }
+        self.next
+    }
+
+    fn advance_to(&mut self, t: Instant) -> Instant {
+        self.next = self.next + Duration::from_ticks(
+            (t.saturating_duration_since(self.next).as_ticks() / self.advance.as_ticks())
+                * self.advance.as_ticks(),
+        );
         self.next
     }
 

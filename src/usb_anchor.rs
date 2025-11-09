@@ -1,7 +1,6 @@
 use core::sync::atomic::AtomicBool;
 
 use crate::LedState;
-use crate::LedState::{Connecting, Error};
 use crate::{KLIPPER_TRANSPORT, LED_STATE};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
@@ -10,7 +9,7 @@ use embassy_futures::select::{Either5, select, select5};
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, ControlChanged, Receiver, Sender, State};
 use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
@@ -154,7 +153,7 @@ impl UsbAnchor {
             receiver.wait_connection().await;
             ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
-            let move_period = Duration::from_micros(1500);
+            let move_period = Duration::from_hz(1000);
             let mut move_ticks = Instant::now() + move_period;
 
             loop {

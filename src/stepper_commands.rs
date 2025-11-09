@@ -32,27 +32,13 @@ pub fn config_stepper(
     }
 }
 
-static STEP_HORIZON: Duration = Duration::from_millis(1);
-
 #[klipper_command]
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
-    let mut ticks: u32 = clock32_to_ticks(interval);
+    // let mut ticks: u32 = clock32_to_ticks(interval);
     if let Some(i) = context.steppers_by_oid.get(&oid) {
-        if count == 1 {
-            let last_step = context.steppers[*i].last_step();
-            let next_step = clock32_to_instant(interval);
-            let diff = next_step.saturating_duration_since(last_step);
-            info!("Far future step diff {:?} {:?} {:?}", last_step, next_step, diff);
-            if diff > STEP_HORIZON {
-                context.steppers[*i].reset_clock(next_step.saturating_sub(STEP_HORIZON));
-                ticks = STEP_HORIZON.as_ticks() as u32;
-            } else {
-                ticks = diff.as_ticks() as u32;
-            }
-        }
-        debug!("queue_step {} ({}) {} {}", ticks, interval, count, add);
+        debug!("queue_step ({}) {} {}", interval, count, add);
         context.steppers[*i].queue_move(
-            Duration::from_ticks(ticks as u64),
+            interval,
             count,
             clocki16_to_ticks(add),
         );
@@ -82,7 +68,7 @@ pub fn set_next_step_dir(context: &mut State, oid: u8, dir: u8) {
 pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         info!("Reset step clock {} {}", oid, clock);
-        context.steppers[*i].reset_clock(clock32_to_instant(clock));
+        context.steppers[*i].reset_clock(clock);
     } else {
         warn!("No OID match");
     }
@@ -216,7 +202,7 @@ pub fn trsync_start(
     if let Some(i) = context.trsync_by_oid.get(&oid) {
         if let Some(t) = context.trsync.get_mut(*i) {
             info!("TrSync starting for {}", oid);
-            t.report_ticks = Some(Duration::from_ticks(clock32_to_ticks(report_ticks) as u64));
+            t.report_ticks = Some(report_ticks);
             t.report_clock = if report_ticks != 0 {
                 Some(clock32_to_instant(report_clock))
             } else {
