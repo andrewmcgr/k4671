@@ -16,7 +16,6 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
 use heapless::{LinearMap, Vec};
@@ -31,7 +30,7 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, now_clock32};
-use crate::leds::blink;
+use crate::leds::{LED_STATE, LedState};
 // use crate::leds::{blink_errled, blink_focled, blink_led};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -142,6 +141,7 @@ impl TrSync {
                     self.trigger_reason,
                     now_clock32(),
                 );
+
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
                     if ticks > Duration::from_ticks(0) {
@@ -152,9 +152,9 @@ impl TrSync {
                             ticks.as_ticks()
                         );
                         let mut next = report_clock;
-                        while next <= now {
-                            next += ticks;
-                        }
+                        // while next <= now {
+                        //     next += ticks;
+                        // }
                         next += ticks;
                         self.report_clock = Some(next);
                         if next < rv {
@@ -171,6 +171,7 @@ impl TrSync {
                 }
             }
         }
+
         if let Some(timeout_clock) = self.timeout_clock {
             if self.can_trigger {
                 let now = Instant::now();
@@ -228,6 +229,7 @@ pub(crate) struct BufferTransportOutput;
 impl TransportOutput for BufferTransportOutput {
     type Output = ScratchOutput;
     fn output(&self, f: impl FnOnce(&mut Self::Output)) {
+        LED_STATE.signal(LedState::N(7));
         let mut scratch = ScratchOutput::new();
         f(&mut scratch);
         let output = scratch.result();
@@ -251,11 +253,8 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
     let crate::target_queue::ControlOutput {
         position: target_position,
         position_1: c1,
-        position_2: _c2,
+        position_2: c2,
     } = stepper.target_queue.get_for_control(next_time);
-
-    let c1 = c1.map(|(t, p)| (Instant::from_ticks(t), p));
-    // let c2 = c2.map(|(t, p)| (Instant::from_ticks(t), p));
 
     let v0 = match c1 {
         Some((t1, p1)) => {
@@ -264,25 +263,25 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
         }
         _ => 0.0,
     };
-    // let v1 = match (c1, c2) {
-    //     (Some((t1, p1)), Some((t2, p2))) => {
-    //         (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
-    //     }
-    //     _ => 0.0,
-    // };
-    // let a0 = match (v0, v1, c1, c2) {
-    //     (v0, v1, Some((t1, _)), Some((t2, _))) => {
-    //         (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
-    //     }
-    //     _ => 0.0,
-    // };
+    let v1 = match (c1, c2) {
+        (Some((t1, p1)), Some((t2, p2))) => {
+            (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+        }
+        _ => 0.0,
+    };
+    let a0 = match (v0, v1, c1, c2) {
+        (v0, v1, Some((t1, _)), Some((t2, _))) => {
+            (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+        }
+        _ => 0.0,
+    };
     // debug!("Send move {}", target_position);
     const STEP_MULT: i32 = 8;
     stepper.advance();
     Some(tmc4671::TMCCommand::Move(
         STEP_MULT * target_position,
         STEP_MULT as f32 * v0,
-        0.0, // STEP_MULT as f32 * a0,
+        STEP_MULT as f32 * a0,
     ))
 }
 
@@ -308,23 +307,12 @@ async fn usb_comms(r: UsbResources) {
     anchor_fut.await;
 }
 
-#[derive(Default)]
-pub enum LedState {
-    #[default]
-    Error,
-    Connecting,
-    Connected,
-    Enabled,
-    Waiting,
-}
-
-pub static LED_STATE: Signal<CS, LedState> = Signal::new();
 
 #[embassy_executor::task]
 async fn tmc_task(r: TmcResources) {
     info!("Hello TMC! {}", DWT::cycle_count());
 
-    LED_STATE.signal(LedState::Error);
+    LED_STATE.signal(LedState::N(4));
     Timer::after_millis(300).await;
 
     let mut spi_config = spi::Config::default();
@@ -392,28 +380,32 @@ async fn stats() {
     let mut last_sample: u32 = now_clock32();
     let mut last_stats: u32 = now_clock32();
     loop {
-        let now = now_clock32();
-        let sleep = SLEEP_TICKS.load(Ordering::Relaxed);
-        let diff = now.wrapping_sub(last_sample);
-        last_sample = now;
-        let usage = diff.saturating_sub(sleep.wrapping_sub(last_sleep));
-        last_sleep = sleep;
-        count += 1;
-        sum += usage;
-        sumsq += (usage as u64) * (usage as u64);
-        if now > (last_stats + (CLOCK_FREQ * 5)) {
-            sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
-            {
-                klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
-                    u32::MAX
-                } else {
-                    sumsq as u32
-                });
+        if usb_anchor::ANCHOR_RX_CONNECTED.load(Ordering::Relaxed)
+            && usb_anchor::ANCHOR_TX_CONNECTED.load(Ordering::Relaxed)
+        {
+            let now = now_clock32();
+            let sleep = SLEEP_TICKS.load(Ordering::Relaxed);
+            let diff = now.wrapping_sub(last_sample);
+            last_sample = now;
+            let usage = diff.saturating_sub(sleep.wrapping_sub(last_sleep));
+            last_sleep = sleep;
+            count += 1;
+            sum += usage;
+            sumsq += (usage as u64) * (usage as u64);
+            if now > (last_stats + (CLOCK_FREQ * 5)) {
+                sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
+                {
+                    klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
+                        u32::MAX
+                    } else {
+                        sumsq as u32
+                    });
+                }
+                count = 0;
+                sum = 0;
+                sumsq = 0;
+                last_stats = now;
             }
-            count = 0;
-            sum = 0;
-            sumsq = 0;
-            last_stats = now;
         }
         ticker.next().await;
     }
@@ -477,22 +469,22 @@ fn main() -> ! {
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
     // spawner.spawn(blink_focled().expect("Spawn failure"));
-    spawner.spawn(stats().expect("Spawn failure"));
-    spawner.spawn(blink(r.led).expect("Spawn failure"));
+    // spawner.spawn(stats().expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(blink_errled().expect("Spawn failure"));
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
-    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
     // spawner.spawn(blink_led().expect("Spawn failure"));
+    // spawner.spawn(blink(r.led).expect("Spawn failure"));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

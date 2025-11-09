@@ -1,3 +1,6 @@
+use core::sync::atomic::AtomicBool;
+
+use crate::LedState;
 use crate::LedState::{Connecting, Error};
 use crate::{KLIPPER_TRANSPORT, LED_STATE};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
@@ -13,13 +16,14 @@ use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 
-
-
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub type AnchorPipe = Pipe<CS, ANCHOR_PIPE_SIZE>;
 pub type AnchorMutex<T> = Mutex<CS, T>;
+
+pub static ANCHOR_RX_CONNECTED: AtomicBool = AtomicBool::new(false);
+pub static ANCHOR_TX_CONNECTED: AtomicBool = AtomicBool::new(false);
 
 // pub static ANCHOR_MUTEX: AnchorMutex<()> = AnchorMutex::new(());
 
@@ -123,10 +127,14 @@ impl UsbAnchor {
     {
         let mut out_fut = async || -> Result<(), Disconnected> {
             let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+            ANCHOR_TX_CONNECTED.store(false, core::sync::atomic::Ordering::Relaxed);
             sender.wait_connection().await;
+            ANCHOR_TX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
             loop {
+                LED_STATE.signal(LedState::N(4));
                 let len = out_pipe.read(&mut rx[..]).await;
-                debug!("Anchor Out {:x}", &rx[..len]);
+
+                info!("Anchor Out {:x}", &rx[..len]);
                 let _ = sender.write_packet(&rx[..len]).await?;
                 if len as u8 == MAX_PACKET_SIZE {
                     let _ = sender.write_packet(&[]).await?;
@@ -142,7 +150,9 @@ impl UsbAnchor {
 
             type RxBuf = FifoBuffer<{ MAX_PACKET_SIZE as usize * 2 }>;
             let mut rx_buf: RxBuf = RxBuf::new();
+            ANCHOR_RX_CONNECTED.store(false, core::sync::atomic::Ordering::Relaxed);
             receiver.wait_connection().await;
+            ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
             let mut move_ticker = Ticker::every(Duration::from_micros(500));
 
@@ -155,12 +165,19 @@ impl UsbAnchor {
                     Timer::at(trsync_ticks),
                 )
                 .await;
+                match &res {
+                    Either5::Third(_) => {}
+                    _ => info!("Anchor event {}", defmt::Debug2Format(&res))
+                }
+
                 match res {
                     // USB disconnect
                     Either5::First(Err(e)) => return Err(e.into()),
                     // Received data
                     Either5::First(Ok(len)) => {
                         debug!("Anchor In {:x}", &reciever_buf[..len]);
+                        LED_STATE.signal(LedState::N(1));
+
                         rx_buf.extend(&reciever_buf[..len]);
                         if !rx_buf.is_empty() {
                             let mut wrap = SliceInputBuffer::new(rx_buf.data());
@@ -183,15 +200,19 @@ impl UsbAnchor {
                         for stepper in state.steppers.iter_mut() {
                             if let Some(cmd) = crate::process_moves(
                                 stepper,
-                                Instant::now() + Duration::from_micros(750),
+                                Instant::now() + Duration::from_hz(25000),
                             ) {
+                                // debug!("Sending TMC command {:?}", cmd);
+                                info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
                                 tmc_sender.enqueue(cmd).ok();
+                                info!("TMC Cmd enqueued");
                             }
                         }
                     }
                     // TrSync state changed or timer expired
                     Either5::Fourth(_) | Either5::Fifth(_) => {
                         trsync_ticks = Instant::MAX;
+                        LED_STATE.signal(LedState::N(2));
                         for t in state.trsync.iter_mut() {
                             if let Some(oid) = t.oid {
                                 let time = t.process_trsync(oid);
@@ -200,15 +221,18 @@ impl UsbAnchor {
                                 }
                             }
                         }
+                        if trsync_ticks != Instant::MAX {
+                            debug!("Next TrSync at {:?}", trsync_ticks);
+                        }
                     }
                 };
             }
         };
 
         loop {
-            LED_STATE.signal(Connecting);
+            // LED_STATE.signal(Connecting);
             let _ = select(out_fut(), reciever_fut()).await;
-            LED_STATE.signal(Error);
+            // LED_STATE.signal(Error);
             Timer::after_millis(900).await;
         }
     }

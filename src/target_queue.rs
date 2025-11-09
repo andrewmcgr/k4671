@@ -5,8 +5,8 @@ use heapless::Deque;
 
 pub struct ControlOutput {
     pub position: i32,
-    pub position_1: Option<(u64, i32)>,
-    pub position_2: Option<(u64, i32)>,
+    pub position_1: Option<(Instant, i32)>,
+    pub position_2: Option<(Instant, i32)>,
 }
 
 impl ControlOutput {
@@ -40,7 +40,7 @@ impl<const N: usize> TargetQueue<N> {
     }
 
     fn can_append(&self) -> bool {
-        self.queue.is_full()
+        !self.queue.is_full()
     }
 
     pub fn clear(&mut self) {
@@ -83,8 +83,8 @@ impl<const N: usize> TargetQueue<N> {
             let v2 = iter.next().copied();
             ControlOutput {
                 position: v0 as i32,
-                position_1: v1.map(|(t, v)| (t.as_ticks(), v as i32)),
-                position_2: v2.map(|(t, v)| (t.as_ticks(), v as i32)),
+                position_1: v1.map(|(t, v)| (t, v as i32)),
+                position_2: v2.map(|(t, v)| (t, v as i32)),
             }
         
     }

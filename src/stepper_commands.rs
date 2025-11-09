@@ -1,7 +1,7 @@
-use crate::LED_STATE;
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::commands::{clock32_to_instant, clock32_to_ticks};
+use crate::commands::{clock32_to_instant, clock32_to_ticks, clocki16_to_ticks};
+use crate::leds::LED_STATE;
 use crate::stepper::Direction;
 use embassy_time::Duration;
 
@@ -34,9 +34,18 @@ pub fn config_stepper(
 
 #[klipper_command]
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
+    let mut ticks: u32 = clock32_to_ticks(interval);
     if let Some(i) = context.steppers_by_oid.get(&oid) {
-        debug!("queue_step {} {} {}", interval, count, add);
-        context.steppers[*i].queue_move(clock32_to_ticks(interval), count, add);
+        if count == 1 {
+            let last_step = context.steppers[*i].last_step();
+            ticks = (clock32_to_instant(interval) - last_step).as_ticks() as u32;
+        }
+        debug!("queue_step {} ({}) {} {}", ticks, interval, count, add);
+        context.steppers[*i].queue_move(
+            Duration::from_ticks(ticks as u64),
+            count,
+            clocki16_to_ticks(add),
+        );
     } else {
         warn!("No OID match");
     }

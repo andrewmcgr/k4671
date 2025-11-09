@@ -15,7 +15,7 @@ pub enum Direction {
 #[derive(Debug, Copy, Clone, defmt::Format)]
 #[repr(C)]
 pub struct Move {
-    interval: u32,
+    interval: Duration,
     count: u16,
     add: i16,
     direction: Direction,
@@ -30,7 +30,7 @@ impl Move {
         if steps == 0 {
             return Duration::from_ticks(0);
         }
-        let base = (steps as u64) * (self.interval as u64);
+        let base = (steps as u64) * self.interval.as_ticks();
         let accel = (self.add as i32) * (steps as i32 - 1) * (steps as i32) / 2;
         Duration::from_ticks(base.wrapping_add(accel as u64))
     }
@@ -55,9 +55,10 @@ impl Move {
     fn advance(&self, steps: u16) -> Move {
         let steps = steps.clamp(0, self.count);
         Move {
-            interval: self
-                .interval
-                .wrapping_add(((self.add as i32) * (steps as i32)) as u32),
+            interval: Duration::from_ticks(
+                (self
+                    .interval.as_ticks() as u32)
+                    .wrapping_add(((self.add as i32) * (steps as i32)) as u32).into()),
             count: self.count - steps,
             add: self.add,
             direction: self.direction,
@@ -74,11 +75,18 @@ struct State {
 impl State {
     /// Advances the state by the given move, up to maximum time
     fn advance(&mut self, cmd: &Move, up_to_time: Instant) -> AdvanceResult {
-        let next_step =
-            Instant::from_ticks(self.last_step.as_ticks().wrapping_add(cmd.interval.into()));
+        let next_step = self.last_step + cmd.interval;
+
         if next_step > up_to_time {
             return AdvanceResult::FutureMove;
         }
+        debug!(
+            "Next step at {}, now is {}, up to {}",
+            next_step,
+            Instant::now(),
+            up_to_time
+        );
+
         // If the next step is within our window, consume one step
         self.step(cmd.direction, 1);
         self.last_step = next_step;
@@ -235,15 +243,15 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                 Some(m) => m,
             };
 
-            trace!("ES advance {:?}", cmd);
-
             // Get next PID tick
             let mut next_time = self.target_time.next();
+            debug!("Advancing stepper with command {:?} at {}", cmd, next_time);
             while cmd.count != 0 && self.callback_state.can_append(callbacks) {
                 // Apply current command up to the next tick
                 match self.state.advance(cmd, next_time) {
                     // Command was fully consumed, last_step was left <= next_time
                     AdvanceResult::Consumed => {
+                        debug!("Command fully consumed");
                         self.callback_state
                             .emit(next_time, self.state.position, callbacks);
                         self.callback_state.incomplete = true;
@@ -251,6 +259,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                         break;
                     }
                     AdvanceResult::Partial(new_cmd) => {
+                        debug!("Command partially consumed, new command {:?}", new_cmd);
                         // Force advance to next PID tick
                         self.callback_state
                             .emit(next_time, self.state.position, callbacks);
@@ -259,6 +268,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                         *cmd = new_cmd;
                     }
                     AdvanceResult::FutureMove => {
+                        trace!("Command not yet ready, advancing time");
                         next_time = self.target_time.advance();
                         self.callback_state.incomplete = false;
                     }
@@ -270,14 +280,14 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         }
     }
 
-    pub fn queue_move(&mut self, interval: u32, count: u16, add: i16) -> bool {
+    pub fn queue_move(&mut self, interval: Duration, count: u16, add: i16) -> bool {
         let cmd = Move {
             interval,
             count,
             add,
             direction: self.next_direction,
         };
-        trace!("ES queue_move {}", cmd);
+        debug!("ES queue_move {} {}", cmd, self.queue.len());
         if self.queue.push_back(cmd).is_err() {
             warn!("ES queue full");
             return false;

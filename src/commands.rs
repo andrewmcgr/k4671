@@ -1,43 +1,15 @@
 use anchor::*;
-// use cortex_m::peripheral::DWT;
 use defmt::*;
 
-use crate::LED_STATE;
-use crate::LedState::Connected;
-use crate::State;
-// use core::sync::atomic::{AtomicU32, Ordering};
+use crate::{State, leds::{LED_STATE, LedState}};
 use embassy_time::{Instant, TICK_HZ};
-
-// static TICKS_HIGH: AtomicU32 = AtomicU32::new(0);
-// static TICKS_LAST: AtomicU32 = AtomicU32::new(0);
-
-// pub fn now_clock32() -> u32 {
-//     let ticks = DWT::cycle_count();
-//     ticks
-// }
-
-// pub fn maintain_clock() -> u32 {
-//     let ticks = DWT::cycle_count();
-//     if ticks < TICKS_LAST.load(Ordering::Acquire) {
-//         TICKS_HIGH.fetch_add(1, Ordering::Release);
-//     }
-//     TICKS_LAST.store(ticks, Ordering::Release);
-//     ticks
-// }
-
-// pub fn now_clock64() -> u64 {
-//     let ticks = now_clock32();
-//     ticks as u64 + ((TICKS_HIGH.load(Ordering::Acquire) as u64) << 32)
-// }
-
-// pub fn clock32_to_64(clock32: u32) -> Instant {
-//     let now = now_clock64();
-//     let high: u32 = (now >> 32) as u32;
-//     Instant::from_ticks((clock32 as u64 + ((high as u64) << 32)) / TICKS_TO_CLOCK)
-// }
 
 pub fn clock32_to_ticks(clock32: u32) -> u32 {
     clock32 / CLOCKS_PER_TICK as u32
+}
+
+pub fn clocki16_to_ticks(add: i16) -> i16 {
+    add as i16 / CLOCKS_PER_TICK as i16
 }
 
 pub static TIMER: systick_timer::Timer =
@@ -49,9 +21,6 @@ pub const CLOCK_FREQ: u32 = 168_000_000;
 pub const CLOCK_FREQ_U64: u64 = CLOCK_FREQ as u64;
 
 pub const CLOCKS_PER_TICK: u64 = CLOCK_FREQ_U64 / TICK_HZ;
-
-// #[klipper_constant]
-// pub const CLOCK_FREQ: u32 = 48_000_000;
 
 pub fn now_clock32() -> u32 {
     TIMER.now() as u32
@@ -70,12 +39,6 @@ pub fn clock32_to_instant(clock32: u32) -> Instant {
         current_time - diff
     } / CLOCKS_PER_TICK)
 }
-
-
-// pub fn clock32_to_64(clock32: u32) -> Instant {
-//     let high = now_clock64() >> 32;
-//     Instant::from_ticks(clock32 as u64 + (high << 32))
-// }
 
 #[klipper_constant]
 #[expect(non_upper_case_globals)]
@@ -104,7 +67,7 @@ pub fn get_clock() {
 #[klipper_command]
 pub fn emergency_stop(context: &mut State) {
     debug!("EMERGENCY STOP");
-    LED_STATE.signal(crate::LedState::Error);
+    LED_STATE.signal(LedState::Error);
     for i in 0..context.steppers.len() {
         context.steppers[i].stop();
     }
@@ -132,7 +95,7 @@ pub fn config_reset(context: &mut State) {
 #[klipper_command]
 pub fn finalize_config(context: &mut State, crc: u32) {
     debug!("finalize_config {:x}", crc);
-    LED_STATE.signal(Connected);
+    LED_STATE.signal(LedState::Connected);
     context.config_crc = Some(crc);
 }
 
