@@ -213,6 +213,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     }
 
     pub fn reset_clock(&mut self, time: Instant) {
+        debug!("Reset clock to {}", time);
         self.state.last_step = time;
     }
 

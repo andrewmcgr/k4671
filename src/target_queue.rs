@@ -25,7 +25,6 @@ impl ControlOutput {
 pub struct TargetQueue<const N: usize> {
     queue: Deque<(Instant, u32), N>,
     last_value: u32,
-    last_time: Option<Instant>,
 }
 
 impl<const N: usize> Default for TargetQueue<N> {
@@ -39,7 +38,6 @@ impl<const N: usize> TargetQueue<N> {
         Self {
             queue: Deque::new(),
             last_value: 0,
-            last_time: None,
         }
     }
 
@@ -65,13 +63,11 @@ impl<const N: usize> TargetQueue<N> {
 
     pub fn get_for_control(&mut self, time: Instant) -> ControlOutput {
             let last = self.last_value as i32;
-            let mut last_time = self.last_time;
 
             // Remove from front such that the next item will be read now
 
             while let Some((t, _)) = self.queue.front() {
                 if *t >= time {
-                    last_time = Some(*t);
                     break;
                 }
                 self.queue.pop_front();

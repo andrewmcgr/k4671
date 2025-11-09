@@ -82,7 +82,7 @@ pub fn get_config(context: &State) {
         is_config: bool = crc.is_some(),
         crc: u32 = crc.unwrap_or(0),
         is_shutdown: bool = false,
-        move_count: u16 = 512
+        move_count: u16 = 64
     );
 }
 
@@ -111,7 +111,7 @@ const MCU: &str = "k4671_openffboard";
 pub const STATS_SUMSQ_BASE: u32 = 256;
 
 #[klipper_constant]
-const RECEIVE_WINDOW: u32 = 256;
+const RECEIVE_WINDOW: u32 = 16;
 
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}

@@ -209,6 +209,8 @@ impl UsbAnchor {
                                 info!("TMC Cmd enqueued");
                                 if let Some(next_time) = next_time {
                                     move_ticks = next_time;
+                                } else {
+                                    move_ticks = Instant::now() + move_period;
                                 }
                             }
                         }

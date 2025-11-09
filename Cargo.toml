@@ -79,12 +79,12 @@ anchor_codegen = { git = "https://github.com/Annex-Engineering/anchor.git" }
 # cargo build/run --release
 [profile.release]
 codegen-units = 1
-debug = 2
-debug-assertions = false
+debug = 'full'
+debug-assertions = true
 incremental = false
 lto = 'fat'
 opt-level = "s"
-overflow-checks = false
+overflow-checks = true
 
 [[bin]]
 name = "k4671"

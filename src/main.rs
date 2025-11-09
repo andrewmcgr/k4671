@@ -35,7 +35,7 @@ use crate::leds::{LED_STATE, LedState};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 1024>;
+pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 256>;
 
 const NUM_STEPPERS: usize = 1;
 
@@ -398,7 +398,7 @@ async fn stats() {
             count += 1;
             sum += usage;
             sumsq += (usage as u64) * (usage as u64);
-            if now > (last_stats + (CLOCK_FREQ * 5)) {
+            if now > (last_stats.wrapping_add(CLOCK_FREQ * 5)) {
                 sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
                 {
                     klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
@@ -475,7 +475,7 @@ fn main() -> ! {
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
     // spawner.spawn(blink_focled().expect("Spawn failure"));
-    // spawner.spawn(stats().expect("Spawn failure"));
+    spawner.spawn(stats().expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);

@@ -32,13 +32,23 @@ pub fn config_stepper(
     }
 }
 
+static STEP_HORIZON: Duration = Duration::from_millis(1);
+
 #[klipper_command]
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
     let mut ticks: u32 = clock32_to_ticks(interval);
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         if count == 1 {
             let last_step = context.steppers[*i].last_step();
-            ticks = (clock32_to_instant(interval) - last_step).as_ticks() as u32;
+            let next_step = clock32_to_instant(interval);
+            let diff = next_step.saturating_duration_since(last_step);
+            info!("Far future step diff {:?} {:?} {:?}", last_step, next_step, diff);
+            if diff > STEP_HORIZON {
+                context.steppers[*i].reset_clock(next_step.saturating_sub(STEP_HORIZON));
+                ticks = STEP_HORIZON.as_ticks() as u32;
+            } else {
+                ticks = diff.as_ticks() as u32;
+            }
         }
         debug!("queue_step {} ({}) {} {}", ticks, interval, count, add);
         context.steppers[*i].queue_move(
