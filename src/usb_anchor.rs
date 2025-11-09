@@ -154,13 +154,14 @@ impl UsbAnchor {
             receiver.wait_connection().await;
             ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
-            let mut move_ticker = Ticker::every(Duration::from_micros(500));
+            let move_period = Duration::from_micros(1500);
+            let mut move_ticks = Instant::now() + move_period;
 
             loop {
                 let res = select5(
                     receiver.read_packet(&mut reciever_buf),
                     control.control_changed(),
-                    move_ticker.next(),
+                    Timer::at(move_ticks),
                     trsync_receiver.changed(),
                     Timer::at(trsync_ticks),
                 )
@@ -198,14 +199,17 @@ impl UsbAnchor {
                     // Move ticker
                     Either5::Third(_) => {
                         for stepper in state.steppers.iter_mut() {
-                            if let Some(cmd) = crate::process_moves(
+                            if let (next_time, Some(cmd)) = crate::process_moves(
                                 stepper,
-                                Instant::now() + Duration::from_hz(25000),
+                                Instant::now() + move_period,
                             ) {
                                 // debug!("Sending TMC command {:?}", cmd);
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
                                 tmc_sender.enqueue(cmd).ok();
                                 info!("TMC Cmd enqueued");
+                                if let Some(next_time) = next_time {
+                                    move_ticks = next_time;
+                                }
                             }
                         }
                     }
@@ -220,9 +224,6 @@ impl UsbAnchor {
                                     trsync_ticks = time;
                                 }
                             }
-                        }
-                        if trsync_ticks != Instant::MAX {
-                            debug!("Next TrSync at {:?}", trsync_ticks);
                         }
                     }
                 };

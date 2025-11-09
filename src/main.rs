@@ -152,10 +152,10 @@ impl TrSync {
                             ticks.as_ticks()
                         );
                         let mut next = report_clock;
-                        // while next <= now {
-                        //     next += ticks;
-                        // }
-                        next += ticks;
+                        if next < now {
+                            next = now
+                                + ticks * (1 + (now - next).as_ticks() / ticks.as_ticks()) as u32;
+                        }
                         self.report_clock = Some(next);
                         if next < rv {
                             rv = next;
@@ -249,9 +249,13 @@ pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput
 
 pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
 
-fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tmc4671::TMCCommand> {
+fn process_moves(
+    stepper: &mut EmulatedStepper,
+    next_time: Instant,
+) -> (Option<Instant>, Option<tmc4671::TMCCommand>) {
     let crate::target_queue::ControlOutput {
         position: target_position,
+        time: finish_time,
         position_1: c1,
         position_2: c2,
     } = stepper.target_queue.get_for_control(next_time);
@@ -278,11 +282,14 @@ fn process_moves(stepper: &mut EmulatedStepper, next_time: Instant) -> Option<tm
     // debug!("Send move {}", target_position);
     const STEP_MULT: i32 = 8;
     stepper.advance();
-    Some(tmc4671::TMCCommand::Move(
-        STEP_MULT * target_position,
-        STEP_MULT as f32 * v0,
-        STEP_MULT as f32 * a0,
-    ))
+    (
+        finish_time,
+        Some(tmc4671::TMCCommand::Move(
+            STEP_MULT * target_position,
+            STEP_MULT as f32 * v0,
+            STEP_MULT as f32 * a0,
+        )),
+    )
 }
 
 #[embassy_executor::task]
@@ -306,7 +313,6 @@ async fn usb_comms(r: UsbResources) {
     let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
     anchor_fut.await;
 }
-
 
 #[embassy_executor::task]
 async fn tmc_task(r: TmcResources) {

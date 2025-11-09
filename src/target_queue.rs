@@ -5,14 +5,16 @@ use heapless::Deque;
 
 pub struct ControlOutput {
     pub position: i32,
+    pub time: Option<Instant>,
     pub position_1: Option<(Instant, i32)>,
     pub position_2: Option<(Instant, i32)>,
 }
 
 impl ControlOutput {
-    fn single(position: i32) -> Self {
+    fn single(position: i32, time: Option<Instant>) -> Self {
         Self {
             position,
+            time,
             position_1: None,
             position_2: None,
         }
@@ -23,6 +25,7 @@ impl ControlOutput {
 pub struct TargetQueue<const N: usize> {
     queue: Deque<(Instant, u32), N>,
     last_value: u32,
+    last_time: Option<Instant>,
 }
 
 impl<const N: usize> Default for TargetQueue<N> {
@@ -36,6 +39,7 @@ impl<const N: usize> TargetQueue<N> {
         Self {
             queue: Deque::new(),
             last_value: 0,
+            last_time: None,
         }
     }
 
@@ -61,28 +65,31 @@ impl<const N: usize> TargetQueue<N> {
 
     pub fn get_for_control(&mut self, time: Instant) -> ControlOutput {
             let last = self.last_value as i32;
+            let mut last_time = self.last_time;
 
             // Remove from front such that the next item will be read now
 
             while let Some((t, _)) = self.queue.front() {
                 if *t >= time {
+                    last_time = Some(*t);
                     break;
                 }
                 self.queue.pop_front();
             }
             if self.queue.is_empty() {
-                return ControlOutput::single(last);
+                return ControlOutput::single(last, Some(time));
             }
             let mut iter = self.queue.iter();
             let v0 = iter.next().copied();
-            let v0 = match v0 {
-                Some((t0, v0)) if t0 == time => v0,
-                _ => return ControlOutput::single(last),
+            let (t0, v0) = match v0 {
+                Some((t0, v0)) if t0 == time => (t0, v0),
+                _ => return ControlOutput::single(last, Some(time)),
             };
             let v1 = iter.next().copied();
             let v2 = iter.next().copied();
             ControlOutput {
                 position: v0 as i32,
+                time: Some(t0),
                 position_1: v1.map(|(t, v)| (t, v as i32)),
                 position_2: v2.map(|(t, v)| (t, v as i32)),
             }
