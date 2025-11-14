@@ -1,6 +1,9 @@
 #![no_std]
 #![feature(core_float_math)]
 
+#![feature(likely_unlikely)]
+use core::hint::*;
+
 use defmt::*;
 use embedded_devices_derive::forward_register_fns;
 use embedded_interfaces::TransportError;
@@ -72,10 +75,11 @@ impl TimeIterator for TMCTimeIterator {
     }
 
     fn advance_to(&mut self, t: Instant) -> Instant {
-        self.next = self.next + Duration::from_ticks(
-            (t.saturating_duration_since(self.next).as_ticks() / self.advance.as_ticks())
-                * self.advance.as_ticks(),
-        );
+        self.next = self.next
+            + Duration::from_ticks(
+                (t.saturating_duration_since(self.next).as_ticks() / self.advance.as_ticks())
+                    * self.advance.as_ticks(),
+            );
         self.next
     }
 
@@ -106,7 +110,8 @@ impl Saturate for f32 {
     }
 }
 
-#[derive(Debug, defmt::Format, Copy, Clone)]
+
+#[derive(Debug, defmt::Format)]
 pub enum TMCCommand {
     Enable,
     Disable,
@@ -807,7 +812,7 @@ where
             "TMC PID Errors: Torque {}, Velocity {}, Position {}, FF {}",
             torque, velocity, position, self.ff_error
         );
-        if self.enabled {
+        if likely(self.enabled) {
             // Apply feedforward from last error
             let torque_offset = -(self.ff_current_limit * (self.ff_error as i32)) as i32;
             trace!("TMC Feedforward Torque Offset: {}", torque_offset);
@@ -1050,7 +1055,7 @@ where
                         self.disable_motor().await.ok();
                     }
                     TMCCommand::Stop => {
-                        debug!("TMC Command {}", cmd);
+                        // debug!("TMC Command {:?}", cmd);
                         while let Some(_) = self.command_rx.dequeue() {
                             // Drain any pending commands
                         }

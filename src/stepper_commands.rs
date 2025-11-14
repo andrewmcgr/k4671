@@ -1,9 +1,8 @@
 use crate::LedState::{Connected, Enabled};
 use crate::State;
-use crate::commands::{clock32_to_instant, clock32_to_ticks, clocki16_to_ticks};
+use crate::commands::{clock32_to_clock64, clock32_to_instant, clocki16_to_ticks, now_clock32, now_clock64};
 use crate::leds::LED_STATE;
 use crate::stepper::Direction;
-use embassy_time::Duration;
 
 use anchor::*;
 use defmt::*;
@@ -37,11 +36,7 @@ pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: 
     // let mut ticks: u32 = clock32_to_ticks(interval);
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("queue_step ({}) {} {}", interval, count, add);
-        context.steppers[*i].queue_move(
-            interval,
-            count,
-            clocki16_to_ticks(add),
-        );
+        context.steppers[*i].queue_move(interval, count, clocki16_to_ticks(add));
     } else {
         warn!("No OID match");
     }
@@ -119,17 +114,15 @@ pub fn config_digital_out(
 }
 
 #[klipper_command]
-pub fn queue_digital_out(context: &mut State, oid: u8, _clock: u32, on_ticks: u32) {
+pub fn queue_digital_out(context: &mut State, oid: u8, clock: u32, on_ticks: u32) {
     if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
-        info!("Queue digital out {} {} {}", oid, _clock, on_ticks);
+        info!("Queue digital out {} {} {}", oid, clock, on_ticks);
         let enable = on_ticks != 0;
-        context.steppers[*i].reset_target(0);
-        context.steppers[*i].set_enabled(enable);
         if enable {
-            LED_STATE.signal(Connected);
-        } else {
-            LED_STATE.signal(Enabled);
+            context.steppers[*i].reset_target(0);
         }
+        let clock64 = clock32_to_clock64(clock);
+        context.steppers[*i].set_enabled(clock64.wrapping_sub(now_clock64()) as u32, enable);
     }
 }
 
@@ -138,13 +131,10 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
     if let Some(i) = context.steppers_by_enable_oid.get(&oid) {
         info!("Update digital out {} {}", oid, value);
         let enable = value != 0;
-        if !enable {
+        if enable {
             context.steppers[*i].reset_target(0);
-            context.steppers[*i].set_enabled(enable);
-            LED_STATE.signal(Connected);
-        } else {
-            LED_STATE.signal(Enabled);
         }
+        context.steppers[*i].set_enabled(now_clock32(), enable);
     } else {
         warn!("No OID match");
         return;

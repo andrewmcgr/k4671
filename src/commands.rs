@@ -30,14 +30,18 @@ pub fn now_clock64() -> u64 {
     TIMER.now()
 }
 
-pub fn clock32_to_instant(clock32: u32) -> Instant {
+pub fn clock32_to_clock64(clock32: u32) -> u64 {
     let current_time = now_clock64();
     let diff = (current_time as u32).wrapping_sub(clock32) as u64;
-    Instant::from_ticks(if diff & 0x8000_0000 != 0 {
+    if diff & 0x8000_0000 != 0 {
         current_time + 0x1_0000_0000 - diff
     } else {
         current_time - diff
-    } / CLOCKS_PER_TICK)
+    }
+}
+
+pub fn clock32_to_instant(clock32: u32) -> Instant {
+    Instant::from_ticks(clock32_to_clock64(clock32) / CLOCKS_PER_TICK)
 }
 
 pub fn duration_to_ticks(dur: embassy_time::Duration) -> u32 {

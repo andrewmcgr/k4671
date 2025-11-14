@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+#![feature(likely_unlikely)]
+use core::hint::*;
+
 use cortex_m::peripheral::DWT;
 use cortex_m_rt::{entry, exception};
 
@@ -134,7 +137,7 @@ impl TrSync {
                 now.as_ticks(),
                 report_clock.as_ticks()
             );
-            if now >= report_clock {
+            if likely(now >= report_clock) {
                 stepper_commands::trsync_report(
                     oid,
                     if self.can_trigger { 1 } else { 0 },
@@ -144,7 +147,7 @@ impl TrSync {
 
                 // Timer has expired
                 if let Some(ticks) = self.report_ticks {
-                    if ticks > 0 {
+                    if likely(ticks > 0) {
                         info!(
                             "TrSync report {} now {} ticks {}",
                             oid,
@@ -181,7 +184,7 @@ impl TrSync {
                     now.as_ticks(),
                     timeout_clock.as_ticks()
                 );
-                if now >= timeout_clock {
+                if unlikely(now >= timeout_clock) {
                     info!("TrSync timeout {} now {}", oid, now.as_ticks());
                     // Timer has expired
                     self.timeout_clock = None;
@@ -259,7 +262,22 @@ fn process_moves(
         time: finish_time,
         position_1: c1,
         position_2: c2,
+        enable,
     } = stepper.target_queue.get_for_control(next_time);
+
+    if let Some(enable) = enable {
+        let cmd = if enable {
+            tmc4671::TMCCommand::Enable
+        } else {
+            tmc4671::TMCCommand::Disable
+        };
+        trace!("Stepper enable command: {:?} at {} (next {})", cmd, finish_time, next_time);
+        stepper.advance();
+        return (
+            finish_time,
+            Some(cmd),
+        );
+    }
 
     let v0 = match c1 {
         Some((t1, p1)) => {

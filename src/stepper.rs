@@ -1,4 +1,9 @@
-use crate::{TMC_CMD, commands::{clock32_to_instant, duration_to_ticks, instant_to_clock32}};
+use core::hint::*;
+
+use crate::{
+    TMC_CMD,
+    commands::{clock32_to_instant, duration_to_ticks, instant_to_clock32},
+};
 use defmt::*;
 use embassy_time::Instant;
 use heapless::Deque;
@@ -12,6 +17,21 @@ pub enum Direction {
     Backward,
 }
 
+#[derive(Default, Debug, Copy, Clone, defmt::Format)]
+pub enum MoveQueueKind {
+    #[default]
+    Move,
+    Enable(bool),
+}
+impl MoveQueueKind {
+    fn into_enable(&self) -> Option<bool> {
+        match self {
+            MoveQueueKind::Move => None,
+            MoveQueueKind::Enable(e) => Some(*e),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, defmt::Format)]
 #[repr(C)]
 pub struct Move {
@@ -19,6 +39,7 @@ pub struct Move {
     count: u16,
     add: i16,
     direction: Direction,
+    kind: MoveQueueKind,
 }
 
 impl Move {
@@ -61,6 +82,7 @@ impl Move {
             count: self.count - steps,
             add: self.add,
             direction: self.direction,
+            kind: MoveQueueKind::Move,
         }
     }
 }
@@ -87,9 +109,14 @@ impl State {
             up_to_time
         );
 
+        self.last_step = next_clock32;
+
+        if let MoveQueueKind::Enable(_) = cmd.kind {
+            return AdvanceResult::Consumed;
+        }
+
         // If the next step is within our window, consume one step
         self.step(cmd.direction, 1);
-        self.last_step = next_clock32;
         let cmd = cmd.advance(1);
         if cmd.count == 0 {
             return AdvanceResult::Consumed; // We consumed the entire thing.
@@ -138,11 +165,11 @@ enum AdvanceResult {
 }
 
 pub trait Callbacks {
-    fn append(&mut self, time: u32, value: u32);
+    fn append(&mut self, time: u32, value: u32, enable: Option<bool>);
     fn update_last(&mut self, time: u32, value: u32);
     fn can_append(&self) -> bool;
 }
-    
+
 #[derive(Debug)]
 pub struct EmulatedStepper<T, const N: usize> {
     queue: heapless::Deque<Move, N>,
@@ -165,8 +192,18 @@ struct CallbackState {
 }
 
 impl CallbackState {
-    fn append(&mut self, next_time: u32, position: u32, callbacks: &mut impl Callbacks) {
-        callbacks.append(next_time, position);
+    fn append(
+        &mut self,
+        next_time: u32,
+        position: u32,
+        enable: Option<bool>,
+        callbacks: &mut impl Callbacks,
+    ) {
+        debug!(
+            "Append callback at {} pos {} enable {:?}",
+            next_time, position, enable
+        );
+        callbacks.append(next_time, position, enable);
         self.last_append = (next_time, position);
     }
 
@@ -177,11 +214,21 @@ impl CallbackState {
         }
     }
 
-    fn emit(&mut self, next_time: u32, position: u32, callbacks: &mut impl Callbacks) {
-        if self.incomplete {
-            self.update(position, callbacks);
+    fn emit(
+        &mut self,
+        next_time: u32,
+        position: u32,
+        enable: Option<bool>,
+        callbacks: &mut impl Callbacks,
+    ) {
+        debug!(
+            "Emit callback at {} pos {} enable {:?} incomplete {}",
+            next_time, position, enable, self.incomplete
+        );
+        if likely(enable.is_some()) || !self.incomplete {
+            self.append(next_time, position, enable, callbacks);
         } else {
-            self.append(next_time, position, callbacks);
+            self.update(position, callbacks);
         }
     }
 
@@ -230,8 +277,12 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         let callbacks = &mut self.target_queue;
         if let Some(reset_target) = self.reset_target.take() {
             self.state.position = reset_target;
-            self.callback_state
-                .emit(instant_to_clock32(self.target_time.next()), reset_target, callbacks);
+            self.callback_state.emit(
+                instant_to_clock32(self.target_time.next()),
+                reset_target,
+                None,
+                callbacks,
+            );
         }
         while self.callback_state.can_append(callbacks) {
             let cmd = match self.current_move.as_mut() {
@@ -254,8 +305,12 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                     // Command was fully consumed, last_step was left <= next_time
                     AdvanceResult::Consumed => {
                         debug!("Command fully consumed");
-                        self.callback_state
-                            .emit(instant_to_clock32(next_time), self.state.position, callbacks);
+                        self.callback_state.emit(
+                            instant_to_clock32(next_time),
+                            self.state.position,
+                            cmd.kind.into_enable(),
+                            callbacks,
+                        );
                         self.callback_state.incomplete = true;
                         cmd.count = 0;
                         break;
@@ -263,14 +318,18 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                     AdvanceResult::Partial(new_cmd) => {
                         debug!("Command partially consumed, new command {:?}", new_cmd);
                         // Force advance to next PID tick
-                        self.callback_state
-                            .emit(instant_to_clock32(next_time), self.state.position, callbacks);
+                        self.callback_state.emit(
+                            instant_to_clock32(next_time),
+                            self.state.position,
+                            None,
+                            callbacks,
+                        );
                         self.callback_state.incomplete = false;
                         next_time = self.target_time.advance();
                         *cmd = new_cmd;
                     }
                     AdvanceResult::FutureMove => {
-                        trace!("Command not yet ready, advancing time");
+                        debug!("Command not yet ready, advancing time");
                         self.callback_state.incomplete = false;
                         return;
                     }
@@ -288,9 +347,10 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             count,
             add,
             direction: self.next_direction,
+            kind: MoveQueueKind::Move,
         };
         debug!("ES queue_move {} {}", cmd, self.queue.len());
-        if self.queue.push_back(cmd).is_err() {
+        if unlikely(self.queue.push_back(cmd).is_err()) {
             warn!("ES queue full");
             return false;
         }
@@ -328,14 +388,16 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.state.position as i32
     }
 
-    pub fn set_enabled(&mut self, enabled: bool) {
-        let cmd = if enabled {
-            TMCCommand::Enable
-        } else {
-            TMCCommand::Disable
+    pub fn set_enabled(&mut self, interval: u32, enabled: bool) {
+        let cmd = Move {
+            interval,
+            count: 1,
+            add: 0,
+            direction: self.next_direction,
+            kind: MoveQueueKind::Enable(enabled),
         };
-        info!("ES set_enabled {}", cmd);
-        TMC_CMD.enqueue(cmd).ok();
-        self.enabled = enabled;
+        if self.queue.push_back(cmd).is_err() {
+            warn!("ES queue full");
+        }
     }
 }
