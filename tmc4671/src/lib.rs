@@ -52,7 +52,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(500),
+            advance: Duration::from_hz(5000),
         }
     }
 
@@ -1007,35 +1007,35 @@ where
         let mut _torque_offset: i32;
 
         loop {
-            let pos_actual = self.get_pid_position_actual().await.unwrap();
-            let target_actual = self
-                .read_register::<PidPositionTarget>()
-                .await
-                .unwrap()
-                .read_pid_position_target();
-            let v_actual = self
-                .read_register::<PidVelocityActual>()
-                .await
-                .unwrap()
-                .read_pid_velocity_actual();
-            let v_target = self
-                .read_register::<PidVelocityTarget>()
-                .await
-                .unwrap()
-                .read_pid_velocity_target();
-            let r = self.read_register::<PidTorqueFluxActual>().await.unwrap();
-            let torque_actual = r.read_pid_torque_actual();
-            let flux_actual = r.read_pid_flux_actual();
-            trace!(
-                "TMC Move to {} from actual {} target {} v_actual {} v_target {} torque {} flux {}",
-                self.last_pos,
-                pos_actual,
-                target_actual,
-                v_actual,
-                v_target,
-                torque_actual,
-                flux_actual
-            );
+            // let pos_actual = self.get_pid_position_actual().await.unwrap();
+            // let target_actual = self
+            //     .read_register::<PidPositionTarget>()
+            //     .await
+            //     .unwrap()
+            //     .read_pid_position_target();
+            // let v_actual = self
+            //     .read_register::<PidVelocityActual>()
+            //     .await
+            //     .unwrap()
+            //     .read_pid_velocity_actual();
+            // let v_target = self
+            //     .read_register::<PidVelocityTarget>()
+            //     .await
+            //     .unwrap()
+            //     .read_pid_velocity_target();
+            // let r = self.read_register::<PidTorqueFluxActual>().await.unwrap();
+            // let torque_actual = r.read_pid_torque_actual();
+            // let flux_actual = r.read_pid_flux_actual();
+            // trace!(
+            //     "TMC Move to {} from actual {} target {} v_actual {} v_target {} torque {} flux {}",
+            //     self.last_pos,
+            //     pos_actual,
+            //     target_actual,
+            //     v_actual,
+            //     v_target,
+            //     torque_actual,
+            //     flux_actual
+            // );
             self.calculate_feedforward().await.ok();
 
             // let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));

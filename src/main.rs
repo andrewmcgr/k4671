@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-
 #![feature(likely_unlikely)]
 use core::hint::*;
 
@@ -32,7 +31,9 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, clock32_to_ticks, now_clock32};
+use crate::commands::{
+    CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, clock32_to_ticks, duration_to_ticks, now_clock32, ticks_to_duration
+};
 use crate::leds::{LED_STATE, LedState};
 // use crate::leds::{blink_errled, blink_focled, blink_led};
 
@@ -146,18 +147,18 @@ impl TrSync {
                 );
 
                 // Timer has expired
-                if let Some(ticks) = self.report_ticks {
-                    if likely(ticks > 0) {
+                if let Some(clocks) = self.report_ticks {
+                    if likely(clocks > 0) {
                         info!(
                             "TrSync report {} now {} ticks {}",
                             oid,
                             now.as_ticks(),
-                            ticks
+                            clocks
                         );
                         let mut next = report_clock;
                         if next < now {
-                            next =
-                                now + Duration::from_ticks(clock32_to_ticks(ticks * ((now - next).as_ticks() as u32 / ticks)) as u64);
+                            next += ticks_to_duration(clocks)
+                                // * ((((now - next).as_ticks() * commands::CLOCKS_PER_TICK) as u32) / clocks);
                         }
                         self.report_clock = Some(next);
                         if next < rv {
@@ -271,12 +272,12 @@ fn process_moves(
         } else {
             tmc4671::TMCCommand::Disable
         };
-        trace!("Stepper enable command: {:?} at {} (next {})", cmd, finish_time, next_time);
-        stepper.advance();
-        return (
-            finish_time,
-            Some(cmd),
+        trace!(
+            "Stepper enable command: {:?} at {} (next {})",
+            cmd, finish_time, next_time
         );
+        stepper.advance();
+        return (finish_time, Some(cmd));
     }
 
     let v0 = match c1 {
@@ -501,6 +502,7 @@ fn main() -> ! {
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(blink_errled().expect("Spawn failure"));
     spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(leds::blink(r.led).expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
@@ -508,7 +510,6 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     // spawner.spawn(blink_led().expect("Spawn failure"));
-    // spawner.spawn(blink(r.led).expect("Spawn failure"));
     spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
 
     /*

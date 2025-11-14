@@ -313,7 +313,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                         );
                         self.callback_state.incomplete = true;
                         cmd.count = 0;
-                        break;
+                        // break;
                     }
                     AdvanceResult::Partial(new_cmd) => {
                         debug!("Command partially consumed, new command {:?}", new_cmd);
@@ -327,6 +327,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                         self.callback_state.incomplete = false;
                         next_time = self.target_time.advance();
                         *cmd = new_cmd;
+                        break;
                     }
                     AdvanceResult::FutureMove => {
                         debug!("Command not yet ready, advancing time");

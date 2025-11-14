@@ -153,7 +153,7 @@ impl UsbAnchor {
             receiver.wait_connection().await;
             ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
-            let move_period = Duration::from_hz(1000);
+            let move_period = Duration::from_hz(1250);
             let mut move_ticks = Instant::now() + move_period;
 
             loop {
@@ -167,7 +167,7 @@ impl UsbAnchor {
                 .await;
                 match &res {
                     Either5::Third(_) => {}
-                    _ => info!("Anchor event {}", defmt::Debug2Format(&res))
+                    _ => info!("Anchor event {}", defmt::Debug2Format(&res)),
                 }
 
                 match res {
@@ -197,19 +197,22 @@ impl UsbAnchor {
                     }
                     // Move ticker
                     Either5::Third(_) => {
+                        move_ticks = Instant::MAX;
                         for stepper in state.steppers.iter_mut() {
-                            if let (next_time, Some(cmd)) = crate::process_moves(
-                                stepper,
-                                Instant::now() + move_period,
-                            ) {
+                            if let (next_time, Some(cmd)) =
+                                crate::process_moves(stepper, Instant::now() + move_period)
+                            {
                                 // debug!("Sending TMC command {:?}", cmd);
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
                                 tmc_sender.enqueue(cmd).ok();
                                 info!("TMC Cmd enqueued");
-                                if let Some(next_time) = next_time {
-                                    move_ticks = next_time;
+                                let t = if let Some(next_time) = next_time {
+                                    next_time
                                 } else {
-                                    move_ticks = Instant::now() + move_period;
+                                    Instant::now() + move_period
+                                };
+                                if t < move_ticks {
+                                    move_ticks = t;
                                 }
                             }
                         }

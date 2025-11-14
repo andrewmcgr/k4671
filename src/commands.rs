@@ -2,7 +2,7 @@ use anchor::*;
 use defmt::*;
 
 use crate::{State, leds::{LED_STATE, LedState}};
-use embassy_time::{Instant, TICK_HZ};
+use embassy_time::{Instant, Duration, TICK_HZ};
 
 pub fn clock32_to_ticks(clock32: u32) -> u32 {
     clock32 / CLOCKS_PER_TICK as u32
@@ -44,8 +44,12 @@ pub fn clock32_to_instant(clock32: u32) -> Instant {
     Instant::from_ticks(clock32_to_clock64(clock32) / CLOCKS_PER_TICK)
 }
 
-pub fn duration_to_ticks(dur: embassy_time::Duration) -> u32 {
+pub fn duration_to_ticks(dur: Duration) -> u32 {
     (dur.as_ticks() as u64 * TICK_HZ / CLOCK_FREQ_U64) as u32
+}
+
+pub fn ticks_to_duration(ticks: u32) -> Duration {
+    Duration::from_ticks(ticks as u64 / CLOCKS_PER_TICK)
 }
 
 pub fn instant_to_clock32(instant: Instant) -> u32 {
