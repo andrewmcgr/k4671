@@ -1,7 +1,12 @@
 #![no_std]
 #![no_main]
 #![feature(likely_unlikely)]
+#![feature(type_alias_impl_trait)]
+#![feature(unsafe_cell_access)]
+
+use core::cell::UnsafeCell;
 use core::hint::*;
+use core::mem::MaybeUninit;
 
 use cortex_m::peripheral::DWT;
 use cortex_m_rt::{entry, exception};
@@ -19,8 +24,11 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::watch::Watch;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
-use heapless::{LinearMap, Vec};
+use heapless::spsc;
+use heapless::{LinearMap, Vec, spsc::Consumer, spsc::Producer, spsc::Queue};
+use static_cell::{StaticCell, make_static};
 
 use anchor::*;
 use tmc4671::{self, config::TMC4671Config};
@@ -32,7 +40,8 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::commands::{
-    CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, clock32_to_ticks, duration_to_ticks, now_clock32, ticks_to_duration
+    CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, clock32_to_ticks, duration_to_ticks, now_clock32,
+    ticks_to_duration,
 };
 use crate::leds::{LED_STATE, LedState};
 // use crate::leds::{blink_errled, blink_focled, blink_led};
@@ -158,15 +167,11 @@ impl TrSync {
                         let mut next = report_clock;
                         if next < now {
                             next += ticks_to_duration(clocks)
-                                // * ((((now - next).as_ticks() * commands::CLOCKS_PER_TICK) as u32) / clocks);
                         }
                         self.report_clock = Some(next);
                         if next < rv {
                             rv = next;
                         }
-                    } else {
-                        info!("TrSync report {} now {} ticks None", oid, now.as_ticks());
-                        self.report_clock = None;
                     }
                 }
             } else {
@@ -191,7 +196,7 @@ impl TrSync {
                     self.timeout_clock = None;
                     self.can_trigger = false;
                     self.trigger_reason = self.expire_reason;
-                    self.report_clock = None;
+                    // self.report_clock = None;
                     stepper_commands::trsync_report(oid, 0, self.expire_reason, now_clock32());
                 } else {
                     if timeout_clock < rv {
@@ -227,7 +232,10 @@ impl State {
     }
 }
 
-pub static USB_OUT_BUFFER: usb_anchor::AnchorPipe = usb_anchor::AnchorPipe::new();
+pub static USB_OUT_BUFFER: StaticCell<spsc::Producer<Vec<u8, 64>>> = StaticCell::new();
+static mut USB_OUT_PRODUCER: MaybeUninit<UnsafeCell<&'static mut spsc::Producer<Vec<u8, 64>>>> =
+    MaybeUninit::uninit();
+static USB_DOORBELL: Signal<CS, bool> = Signal::new();
 
 pub(crate) struct BufferTransportOutput;
 
@@ -235,18 +243,21 @@ impl TransportOutput for BufferTransportOutput {
     type Output = ScratchOutput;
     fn output(&self, f: impl FnOnce(&mut Self::Output)) {
         LED_STATE.signal(LedState::N(7));
-        let mut scratch = ScratchOutput::new();
+        let mut scratch: ScratchOutput<{ usb_anchor::MAX_PACKET_SIZE as usize }> =
+            ScratchOutput::new();
         f(&mut scratch);
         let output = scratch.result();
-        if let Ok(n) = USB_OUT_BUFFER.try_write(output) {
-            if n < output.len() {
-                // Retry, possible a ring buffer wrap
-                // debug!("USB transmit buffer retry???");
-                let _ = USB_OUT_BUFFER.try_write(&output[n..]);
-            }
-        } else {
-            debug!("USB transmit buffer full???");
-        }
+        trace!("Transport output {} bytes", output.len());
+        let _ = unsafe {
+            // Safety: this should be the only reference to USB_OUT_PRODUCER after initialization.
+            // And, this task is not started until after initialization.
+            #[expect(static_mut_refs)]
+            let _ = USB_OUT_PRODUCER
+                .assume_init_ref()
+                .as_mut_unchecked()
+                .enqueue(Vec::from_slice(output).ok().unwrap());
+            USB_DOORBELL.signal(true);
+        };
     }
 }
 
@@ -313,7 +324,7 @@ fn process_moves(
 }
 
 #[embassy_executor::task]
-async fn usb_comms(r: UsbResources) {
+async fn usb_comms(r: UsbResources, mut usb_out_consumer: Consumer<'static, Vec<u8, 64>>) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 2048];
     let mut config = embassy_stm32::usb::Config::default();
@@ -330,7 +341,7 @@ async fn usb_comms(r: UsbResources) {
     let mut state = usb_anchor::AnchorState::new();
     let in_pipe = usb_anchor::AnchorPipe::new();
     let mut anchor = usb_anchor::UsbAnchor::new();
-    let anchor_fut = anchor.run(&mut state, &in_pipe, &USB_OUT_BUFFER, driver);
+    let anchor_fut = anchor.run(&mut state, &in_pipe, &mut usb_out_consumer, driver);
     anchor_fut.await;
 }
 
@@ -468,13 +479,23 @@ fn main() -> ! {
     let r = split_resources!(p);
 
     // Enable the DWT cycle counter and systick time driver
-    {
+    unsafe {
         let mut peripherals = cortex_m::Peripherals::take().unwrap();
         peripherals.DCB.enable_trace();
         DWT::unlock();
         peripherals.DWT.enable_cycle_counter();
 
+        peripherals.SCB.set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0x40);
         TIMER.start(&mut peripherals.SYST);
+    }
+
+    let usb_out_queue: &mut spsc::Queue<Vec<u8, 64>, 8> = make_static!(spsc::Queue::new());
+    let (usb_out_producer, usb_out_consumer) = usb_out_queue.split();
+    let usb_out_producer = make_static!(usb_out_producer);
+    unsafe {
+        // Safety: this is only done once, before any tasks using USB_OUT_PRODUCER are started.
+        #[expect(static_mut_refs)]
+        USB_OUT_PRODUCER.write(UnsafeCell::new(usb_out_producer));
     }
 
     info!("Hello World! {}", DWT::cycle_count());
@@ -510,7 +531,7 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     // spawner.spawn(blink_led().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, usb_out_consumer).expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

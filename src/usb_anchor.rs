@@ -1,11 +1,12 @@
 use core::sync::atomic::AtomicBool;
 
-use crate::LedState;
 use crate::{KLIPPER_TRANSPORT, LED_STATE};
+use crate::{LedState, USB_DOORBELL};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
 use embassy_futures::join::join;
-use embassy_futures::select::{Either5, select, select5};
+use embassy_futures::select::{Either5, Either6, select, select5, select6};
+use embassy_stm32::i2c::RxDma;
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
@@ -14,6 +15,9 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, ControlChanged, Receiver, Sender,
 use embassy_usb::driver::Driver;
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
+use embedded_io_async::Write;
+use heapless::Vec;
+use heapless::spsc::Consumer;
 
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -71,15 +75,14 @@ impl UsbAnchor {
         Self {}
     }
 
-    /// Run the USB anchor using the state and USB driver. Never returns.
+    /// Run the USB anchor using the state and USB driver.
     pub async fn run<'d, D>(
         &'d mut self,
         state: &'d mut AnchorState<'d>,
         in_pipe: &'d AnchorPipe,
-        out_pipe: &'d AnchorPipe,
+        out_pipe: &'d mut Consumer<'d, Vec<u8, 64>>,
         driver: D,
-    ) -> !
-    where
+    ) where
         D: Driver<'d>,
         Self: 'd,
     {
@@ -106,40 +109,34 @@ impl UsbAnchor {
 
         // Build the builder.
         let mut device = builder.build();
-        loop {
-            let run_fut = device.run();
-            let class_fut =
-                self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver, &mut control);
-            join(run_fut, class_fut).await;
-        }
+        let run_fut = device.run();
+        let class_fut =
+            self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver, &mut control);
+        join(run_fut, class_fut).await;
     }
 
     async fn run_anchor_class<'d, D>(
         &mut self,
         _in_pipe: &'d AnchorPipe,
-        out_pipe: &'d AnchorPipe,
+        out_pipe: &'d mut Consumer<'d, Vec<u8, 64>>,
         sender: &mut Sender<'d, D>,
         receiver: &mut Receiver<'d, D>,
         control: &mut ControlChanged<'d>,
     ) where
         D: Driver<'d>,
     {
-        let mut out_fut = async || -> Result<(), Disconnected> {
-            let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
-            ANCHOR_TX_CONNECTED.store(false, core::sync::atomic::Ordering::Relaxed);
-            sender.wait_connection().await;
-            ANCHOR_TX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
-            loop {
-                LED_STATE.signal(LedState::N(4));
-                let len = out_pipe.read(&mut rx[..]).await;
-
-                info!("Anchor Out {:x}", &rx[..len]);
-                let _ = sender.write_packet(&rx[..len]).await?;
-                if len as u8 == MAX_PACKET_SIZE {
-                    let _ = sender.write_packet(&[]).await?;
-                }
-            }
-        };
+        // let mut out_fut = async || -> Result<(), Disconnected> {
+        //     ANCHOR_TX_CONNECTED.store(false, core::sync::atomic::Ordering::Relaxed);
+        //     sender.wait_connection().await;
+        //     ANCHOR_TX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
+        //     loop {
+        //         LED_STATE.signal(LedState::N(4));
+        //         let _ = USB_DOORBELL.wait().await;
+        //         while let Some(v) = out_pipe.dequeue() {
+        //             sender.write_packet(&v).await?;
+        //         }
+        //     }
+        // };
         let mut reciever_fut = async || -> Result<(), Disconnected> {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             let mut state = crate::State::new();
@@ -157,37 +154,48 @@ impl UsbAnchor {
             let mut move_ticks = Instant::now() + move_period;
 
             loop {
-                let res = select5(
+                let res = select6(
                     receiver.read_packet(&mut reciever_buf),
                     control.control_changed(),
                     Timer::at(move_ticks),
                     trsync_receiver.changed(),
                     Timer::at(trsync_ticks),
+                    USB_DOORBELL.wait(),
                 )
                 .await;
                 match &res {
-                    Either5::Third(_) => {}
+                    Either6::Third(_) => {}
                     _ => info!("Anchor event {}", defmt::Debug2Format(&res)),
                 }
 
                 match res {
                     // USB disconnect
-                    Either5::First(Err(e)) => return Err(e.into()),
-                    // Received data
-                    Either5::First(Ok(len)) => {
-                        debug!("Anchor In {:x}", &reciever_buf[..len]);
+                    Either6::First(Err(e)) => return Err(e.into()),
+                    // Received data or need to send
+                    Either6::First(_) | Either6::Sixth(_) => {
                         LED_STATE.signal(LedState::N(1));
-
-                        rx_buf.extend(&reciever_buf[..len]);
-                        if !rx_buf.is_empty() {
-                            let mut wrap = SliceInputBuffer::new(rx_buf.data());
-                            KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
-                            let consumed = rx_buf.len() - wrap.available();
-                            rx_buf.pop(consumed);
+                        if let Either6::First(Ok(len)) = res {
+                            debug!("Anchor In {:x}", &reciever_buf[..len]);
+                            info!("Anchor In {} bytes", len);
+                            rx_buf.extend(&reciever_buf[..len]);
+                            if !rx_buf.is_empty() {
+                                let mut wrap = SliceInputBuffer::new(rx_buf.data());
+                                KLIPPER_TRANSPORT.receive(&mut wrap, &mut state);
+                                let consumed = rx_buf.len() - wrap.available();
+                                rx_buf.pop(consumed);
+                            }
+                        }
+                        // Pump USB
+                        while let Some(v) = out_pipe.dequeue() {
+                            sender.write(&v).await?;
+                            if v.len() == MAX_PACKET_SIZE as usize {
+                                // USB full packet, send another to flush
+                                sender.write_packet(&[]).await?;
+                            }
                         }
                     }
                     // DFU request
-                    Either5::Second(_) => {
+                    Either6::Second(_) => {
                         if receiver.line_coding().data_rate() == 1200 {
                             // Special case: 1200 baud on a CDC ACM port is the "signal to
                             // reboot to bootloader" in the Arduino world.
@@ -196,7 +204,7 @@ impl UsbAnchor {
                         }
                     }
                     // Move ticker
-                    Either5::Third(_) => {
+                    Either6::Third(_) => {
                         move_ticks = Instant::MAX;
                         for stepper in state.steppers.iter_mut() {
                             if let (next_time, Some(cmd)) =
@@ -218,7 +226,7 @@ impl UsbAnchor {
                         }
                     }
                     // TrSync state changed or timer expired
-                    Either5::Fourth(_) | Either5::Fifth(_) => {
+                    Either6::Fourth(_) | Either6::Fifth(_) => {
                         trsync_ticks = Instant::MAX;
                         LED_STATE.signal(LedState::N(2));
                         for t in state.trsync.iter_mut() {
@@ -229,6 +237,14 @@ impl UsbAnchor {
                                 }
                             }
                         }
+                        // Pump USB
+                        while let Some(v) = out_pipe.dequeue() {
+                            sender.write_packet(&v).await?;
+                            if v.len() == MAX_PACKET_SIZE as usize {
+                                // USB full packet, send another to flush
+                                sender.write_packet(&[]).await?;
+                            }
+                        }
                     }
                 };
             }
@@ -236,7 +252,9 @@ impl UsbAnchor {
 
         loop {
             // LED_STATE.signal(Connecting);
-            let _ = select(out_fut(), reciever_fut()).await;
+            // let _ = select(out_fut(), reciever_fut()).await;
+            let _ = reciever_fut().await;
+
             // LED_STATE.signal(Error);
             Timer::after_millis(900).await;
         }
