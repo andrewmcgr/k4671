@@ -297,7 +297,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
             };
 
             // Get next PID tick
-            let mut next_time = self.target_time.next();
+            let mut next_time = self.target_time.advance();
             debug!("Advancing stepper with command {:?} at {}", cmd, next_time);
             while cmd.count != 0 && self.callback_state.can_append(callbacks) {
                 // Apply current command up to the next tick

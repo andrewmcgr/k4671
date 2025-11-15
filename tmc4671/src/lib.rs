@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(core_float_math)]
-
 #![feature(likely_unlikely)]
 use core::hint::*;
 
@@ -68,16 +67,15 @@ impl TMCTimeIterator {
 
 impl TimeIterator for TMCTimeIterator {
     fn advance(&mut self) -> Instant {
-        while self.next <= Instant::now() {
-            self.next += self.advance;
-        }
-        self.next
+        self.advance_to(Instant::now())
     }
 
     fn advance_to(&mut self, t: Instant) -> Instant {
         self.next = self.next
             + Duration::from_ticks(
-                (t.saturating_duration_since(self.next).as_ticks() / self.advance.as_ticks())
+                (t.saturating_duration_since(self.next)
+                    .as_ticks()
+                    .div_ceil(self.advance.as_ticks()))
                     * self.advance.as_ticks(),
             );
         self.next
@@ -109,7 +107,6 @@ impl Saturate for f32 {
         }
     }
 }
-
 
 #[derive(Debug, defmt::Format)]
 pub enum TMCCommand {
