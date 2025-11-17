@@ -39,6 +39,7 @@ pub trait TimeIterator {
     fn next(&mut self) -> Instant;
     fn advance(&mut self) -> Instant;
     fn advance_to(&mut self, t: Instant) -> Instant;
+    #[expect(async_fn_in_trait)]
     async fn wait_next(&mut self) -> Instant;
 }
 
@@ -52,7 +53,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(500),
+            advance: Duration::from_hz(5000),
         }
     }
 

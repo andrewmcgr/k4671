@@ -10,7 +10,7 @@ use core::hint::*;
 use core::mem::MaybeUninit;
 
 use cortex_m::peripheral::DWT;
-use cortex_m_rt::{entry, exception};
+use cortex_m_rt::entry;
 
 use assign_resources::assign_resources;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -23,12 +23,10 @@ use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
 use heapless::spsc;
-use heapless::{LinearMap, Vec, spsc::Consumer, spsc::Producer, spsc::Queue};
+use heapless::{LinearMap, Vec, spsc::Consumer};
 use static_cell::{StaticCell, make_static};
 
 use anchor::*;
@@ -41,10 +39,9 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::commands::{
-    CLOCK_FREQ, CLOCK_FREQ_U64, clock32_to_ticks, duration_to_ticks, now_clock32, ticks_to_duration,
+    CLOCK_FREQ, now_clock32, ticks_to_duration,
 };
 use crate::leds::{LED_STATE, LedState};
-// use crate::leds::{blink_errled, blink_focled, blink_led};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
@@ -53,8 +50,6 @@ pub type EmulatedStepper = stepper::EmulatedStepper<tmc4671::TMCTimeIterator, 25
 const NUM_STEPPERS: usize = 1;
 
 const NUM_TRSYNC: usize = 8;
-
-// pub static TRSYNC_WATCH: Watch<CriticalSectionRawMutex, u32, 2> = Watch::new();
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -392,12 +387,6 @@ unsafe fn USART3() {
     EXECUTOR_LOW.on_interrupt()
 }
 
-// #[exception]
-// #[allow(unsafe_op_in_unsafe_fn)]
-// unsafe fn SysTick() {
-//     TIMER.systick_handler();
-// }
-
 #[embassy_executor::task]
 async fn stats() {
     let mut count = 0u32;
@@ -469,7 +458,7 @@ fn main() -> ! {
 
     let r = split_resources!(p);
 
-    // Enable the DWT cycle counter and systick time driver
+    // Enable the DWT cycle counter
     unsafe {
         let mut peripherals = cortex_m::Peripherals::take().unwrap();
         peripherals.DCB.enable_trace();
@@ -479,7 +468,6 @@ fn main() -> ! {
         peripherals
             .SCB
             .set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0x40);
-        // TIMER.start(&mut peripherals.SYST);
     }
 
     let usb_out_queue: &mut spsc::Queue<Vec<u8, 64>, 8> = make_static!(spsc::Queue::new());
@@ -508,26 +496,20 @@ fn main() -> ! {
     */
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
-    // spawner.spawn(blink_focled().expect("Spawn failure"));
-    // spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
     spawner.spawn(stats().expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    // spawner.spawn(blink_errled().expect("Spawn failure"));
-    // spawner.spawn(leds::blink(r.led).expect("Spawn failure"));
-    // spawner.spawn(stats().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb, usb_out_consumer).expect("Spawn failure"));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
     */
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
-    // spawner.spawn(blink_led().expect("Spawn failure"));
     spawner.spawn(leds::blink(r.led).expect("Spawn failure"));
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, usb_out_consumer).expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

@@ -1,7 +1,5 @@
-use crate::LedState::{Connected, Enabled};
 use crate::State;
 use crate::commands::{clock32_to_clock64, clock32_to_instant, clocki16_to_ticks, now_clock32, now_clock64};
-use crate::leds::LED_STATE;
 use crate::stepper::Direction;
 
 use anchor::*;
@@ -33,7 +31,6 @@ pub fn config_stepper(
 
 #[klipper_command]
 pub fn queue_step(context: &mut State, oid: u8, interval: u32, count: u16, add: i16) {
-    // let mut ticks: u32 = clock32_to_ticks(interval);
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("queue_step ({}) {} {}", interval, count, add);
         context.steppers[*i].queue_move(interval, count, clocki16_to_ticks(add));
@@ -202,9 +199,6 @@ pub fn trsync_start(
             t.can_trigger = true;
             t.expire_reason = expire_reason;
             t.timeout_clock = None;
-            if report_ticks != 0 {
-                crate::TRSYNC_WATCH.dyn_sender().send(1);
-            }
         };
     }
 }
@@ -215,7 +209,6 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
     if let Some(i) = context.trsync_by_oid.get(&oid) {
         if let Some(t) = context.trsync.get_mut(*i) {
             t.timeout_clock = Some(clock32_to_instant(clock));
-            crate::TRSYNC_WATCH.dyn_sender().send(clock);
         }
     }
 }
@@ -240,7 +233,6 @@ pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
             t.report_clock = None;
             t.report_ticks = None;
             trsync_report(oid, 0, reason, 0);
-            crate::TRSYNC_WATCH.dyn_sender().send(0);
         }
     }
 }

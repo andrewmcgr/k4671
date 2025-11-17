@@ -6,8 +6,7 @@ use crate::{LedState, USB_DOORBELL};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
 use embassy_futures::join::join;
-use embassy_futures::select::{Either5, Either6, select, select5, select6};
-use embassy_stm32::i2c::RxDma;
+use embassy_futures::select::{Either5, select5};
 use embassy_stm32::uid;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
@@ -28,8 +27,6 @@ pub type AnchorMutex<T> = Mutex<CS, T>;
 
 pub static ANCHOR_RX_CONNECTED: AtomicBool = AtomicBool::new(false);
 pub static ANCHOR_TX_CONNECTED: AtomicBool = AtomicBool::new(false);
-
-// pub static ANCHOR_MUTEX: AnchorMutex<()> = AnchorMutex::new(());
 
 struct Disconnected {}
 
@@ -160,6 +157,7 @@ impl UsbAnchor {
                     receiver.read_packet(&mut reciever_buf),
                     control.control_changed(),
                     Timer::after(move_period),
+                    // Timer::at(move_ticks),
                     Timer::at(trsync_ticks),
                     USB_DOORBELL.wait(),
                 )
