@@ -8,24 +8,27 @@ use crate::{
 use embassy_time::{Duration, Instant, TICK_HZ};
 
 #[klipper_constant]
-pub const CLOCK_FREQ: u32 = 168_000_000;
+pub const CLOCK_FREQ: u32 = 24_000_000;
 
 pub const CLOCK_FREQ_U64: u64 = CLOCK_FREQ as u64;
 
-pub const CLOCKS_PER_TICK: u64 = CLOCK_FREQ_U64 / TICK_HZ;
+// pub const CLOCKS_PER_TICK: u64 = CLOCK_FREQ_U64 / TICK_HZ;
+pub const CLOCKS_PER_TICK: u64 = 1;
 
 pub const CORE_CLOCK_FREQ: u64 = 168_000_000;
 
 
-pub static TIMER: systick_timer::Timer =
-    systick_timer::Timer::new(crate::CLOCK_FREQ_U64, 16_777_215, CORE_CLOCK_FREQ);
+// pub static TIMER: systick_timer::Timer =
+//     systick_timer::Timer::new(crate::CLOCK_FREQ_U64, 16_777_215, CORE_CLOCK_FREQ);
 
 pub fn now_clock32() -> u32 {
-    TIMER.now() as u32
+    // TIMER.now() as u32
+    now_clock64() as u32
 }
 
 pub fn now_clock64() -> u64 {
-    TIMER.now()
+    // TIMER.now()
+    Instant::now().as_ticks() * CLOCKS_PER_TICK
 }
 
 pub fn clock32_to_clock64(clock32: u32) -> u64 {

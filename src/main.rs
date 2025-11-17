@@ -5,6 +5,7 @@
 #![feature(unsafe_cell_access)]
 
 use core::cell::UnsafeCell;
+use core::cmp::min;
 use core::hint::*;
 use core::mem::MaybeUninit;
 
@@ -23,8 +24,8 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::watch::Watch;
 use embassy_sync::signal::Signal;
+use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
 use heapless::spsc;
 use heapless::{LinearMap, Vec, spsc::Consumer, spsc::Producer, spsc::Queue};
@@ -40,8 +41,7 @@ mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
 use crate::commands::{
-    CLOCK_FREQ, CLOCK_FREQ_U64, TIMER, clock32_to_ticks, duration_to_ticks, now_clock32,
-    ticks_to_duration,
+    CLOCK_FREQ, CLOCK_FREQ_U64, clock32_to_ticks, duration_to_ticks, now_clock32, ticks_to_duration,
 };
 use crate::leds::{LED_STATE, LedState};
 // use crate::leds::{blink_errled, blink_focled, blink_led};
@@ -54,7 +54,7 @@ const NUM_STEPPERS: usize = 1;
 
 const NUM_TRSYNC: usize = 8;
 
-pub static TRSYNC_WATCH: Watch<CriticalSectionRawMutex, u32, 2> = Watch::new();
+// pub static TRSYNC_WATCH: Watch<CriticalSectionRawMutex, u32, 2> = Watch::new();
 
 klipper_config_generate!(
   transport = crate::TRANSPORT_OUTPUT: crate::BufferTransportOutput,
@@ -136,6 +136,7 @@ impl TrSync {
         }
     }
 
+    // Only call if this trsync can trigger
     fn process_trsync(self: &mut TrSync, oid: u8) -> Instant {
         // trsync processing
         let mut rv = Instant::MAX;
@@ -165,44 +166,34 @@ impl TrSync {
                             clocks
                         );
                         let mut next = report_clock;
-                        if next < now {
-                            next += ticks_to_duration(clocks)
-                        }
+                        next += ticks_to_duration(clocks);
                         self.report_clock = Some(next);
-                        if next < rv {
-                            rv = next;
-                        }
+                        rv = min(rv, next);
                     }
                 }
             } else {
-                if report_clock < rv {
-                    rv = report_clock;
-                }
+                rv = min(report_clock, rv);
             }
         }
 
         if let Some(timeout_clock) = self.timeout_clock {
-            if self.can_trigger {
-                let now = Instant::now();
-                info!(
-                    "TrSync check {} now {} timeout {}",
-                    oid,
-                    now.as_ticks(),
-                    timeout_clock.as_ticks()
-                );
-                if unlikely(now >= timeout_clock) {
-                    info!("TrSync timeout {} now {}", oid, now.as_ticks());
-                    // Timer has expired
-                    self.timeout_clock = None;
-                    self.can_trigger = false;
-                    self.trigger_reason = self.expire_reason;
-                    // self.report_clock = None;
-                    stepper_commands::trsync_report(oid, 0, self.expire_reason, now_clock32());
-                } else {
-                    if timeout_clock < rv {
-                        rv = timeout_clock;
-                    }
-                }
+            let now = Instant::now();
+            info!(
+                "TrSync check {} now {} timeout {}",
+                oid,
+                now.as_ticks(),
+                timeout_clock.as_ticks()
+            );
+            if unlikely(now >= timeout_clock) {
+                info!("TrSync timeout {} now {}", oid, now.as_ticks());
+                // Timer has expired
+                self.timeout_clock = None;
+                self.can_trigger = false;
+                self.trigger_reason = self.expire_reason;
+                // self.report_clock = None;
+                stepper_commands::trsync_report(oid, 0, self.expire_reason, now_clock32());
+            } else {
+                rv = min(rv, timeout_clock);
             }
         }
         info!("TrSync done {} returns {}", oid, rv);
@@ -401,11 +392,11 @@ unsafe fn USART3() {
     EXECUTOR_LOW.on_interrupt()
 }
 
-#[exception]
-#[allow(unsafe_op_in_unsafe_fn)]
-unsafe fn SysTick() {
-    TIMER.systick_handler();
-}
+// #[exception]
+// #[allow(unsafe_op_in_unsafe_fn)]
+// unsafe fn SysTick() {
+//     TIMER.systick_handler();
+// }
 
 #[embassy_executor::task]
 async fn stats() {
@@ -485,8 +476,10 @@ fn main() -> ! {
         DWT::unlock();
         peripherals.DWT.enable_cycle_counter();
 
-        peripherals.SCB.set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0x40);
-        TIMER.start(&mut peripherals.SYST);
+        peripherals
+            .SCB
+            .set_priority(cortex_m::peripheral::scb::SystemHandler::SysTick, 0x40);
+        // TIMER.start(&mut peripherals.SYST);
     }
 
     let usb_out_queue: &mut spsc::Queue<Vec<u8, 64>, 8> = make_static!(spsc::Queue::new());
@@ -516,14 +509,16 @@ fn main() -> ! {
     interrupt::USART3.set_priority(Priority::P8);
     let spawner = EXECUTOR_LOW.start(interrupt::USART3);
     // spawner.spawn(blink_focled().expect("Spawn failure"));
+    // spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
     spawner.spawn(stats().expect("Spawn failure"));
 
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
     // spawner.spawn(blink_errled().expect("Spawn failure"));
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
-    spawner.spawn(leds::blink(r.led).expect("Spawn failure"));
+    // spawner.spawn(leds::blink(r.led).expect("Spawn failure"));
+    // spawner.spawn(stats().expect("Spawn failure"));
+    spawner.spawn(usb_comms(r.usb, usb_out_consumer).expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6
@@ -531,7 +526,8 @@ fn main() -> ! {
     interrupt::UART4.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     // spawner.spawn(blink_led().expect("Spawn failure"));
-    spawner.spawn(usb_comms(r.usb, usb_out_consumer).expect("Spawn failure"));
+    spawner.spawn(leds::blink(r.led).expect("Spawn failure"));
+    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
 
     /*
     Sleep loop, thread mode. Account for sleep time.

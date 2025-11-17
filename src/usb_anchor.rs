@@ -1,3 +1,4 @@
+use core::cmp::min;
 use core::sync::atomic::AtomicBool;
 
 use crate::{KLIPPER_TRANSPORT, LED_STATE};
@@ -141,7 +142,7 @@ impl UsbAnchor {
             let mut reciever_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
             let mut state = crate::State::new();
             let tmc_sender = &crate::TMC_CMD;
-            let mut trsync_receiver = crate::TRSYNC_WATCH.receiver().unwrap();
+            // let mut trsync_receiver = crate::TRSYNC_WATCH.receiver().unwrap();
             let mut trsync_ticks = Instant::MAX;
 
             type RxBuf = FifoBuffer<{ MAX_PACKET_SIZE as usize * 2 }>;
@@ -150,31 +151,31 @@ impl UsbAnchor {
             receiver.wait_connection().await;
             ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
-            let move_period = Duration::from_hz(1250);
+            let move_period = Duration::from_hz(2500);
+
             let mut move_ticks = Instant::now() + move_period;
 
             loop {
-                let res = select6(
+                let res = select5(
                     receiver.read_packet(&mut reciever_buf),
                     control.control_changed(),
-                    Timer::at(move_ticks),
-                    trsync_receiver.changed(),
+                    Timer::after(move_period),
                     Timer::at(trsync_ticks),
                     USB_DOORBELL.wait(),
                 )
                 .await;
                 match &res {
-                    Either6::Third(_) => {}
+                    Either5::Third(_) => {}
                     _ => info!("Anchor event {}", defmt::Debug2Format(&res)),
                 }
 
                 match res {
                     // USB disconnect
-                    Either6::First(Err(e)) => return Err(e.into()),
+                    Either5::First(Err(e)) => return Err(e.into()),
                     // Received data or need to send
-                    Either6::First(_) | Either6::Sixth(_) => {
+                    Either5::First(_) => {
                         LED_STATE.signal(LedState::N(1));
-                        if let Either6::First(Ok(len)) = res {
+                        if let Either5::First(Ok(len)) = res {
                             debug!("Anchor In {:x}", &reciever_buf[..len]);
                             info!("Anchor In {} bytes", len);
                             rx_buf.extend(&reciever_buf[..len]);
@@ -193,9 +194,11 @@ impl UsbAnchor {
                                 sender.write_packet(&[]).await?;
                             }
                         }
+                        // Have trsync check if it needs to do something
+                        trsync_ticks = Instant::MIN;
                     }
                     // DFU request
-                    Either6::Second(_) => {
+                    Either5::Second(_) => {
                         if receiver.line_coding().data_rate() == 1200 {
                             // Special case: 1200 baud on a CDC ACM port is the "signal to
                             // reboot to bootloader" in the Arduino world.
@@ -204,7 +207,7 @@ impl UsbAnchor {
                         }
                     }
                     // Move ticker
-                    Either6::Third(_) => {
+                    Either5::Third(_) => {
                         move_ticks = Instant::MAX;
                         for stepper in state.steppers.iter_mut() {
                             if let (next_time, Some(cmd)) =
@@ -214,27 +217,21 @@ impl UsbAnchor {
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
                                 tmc_sender.enqueue(cmd).ok();
                                 info!("TMC Cmd enqueued");
-                                let t = if let Some(next_time) = next_time {
-                                    next_time
-                                } else {
-                                    Instant::now() + move_period
-                                };
-                                if t < move_ticks {
-                                    move_ticks = t;
-                                }
+                                let t = next_time.unwrap_or_else(|| Instant::now() + move_period);
+                                move_ticks = min(move_ticks, t);
                             }
                         }
                     }
-                    // TrSync state changed or timer expired
-                    Either6::Fourth(_) | Either6::Fifth(_) => {
-                        trsync_ticks = Instant::MAX;
+                    // TrSync state changed or timer expired or must pump USB
+                    _ => {
                         LED_STATE.signal(LedState::N(2));
+                        info!("Processing TrSync");
+                        trsync_ticks = Instant::MAX;
                         for t in state.trsync.iter_mut() {
-                            if let Some(oid) = t.oid {
-                                let time = t.process_trsync(oid);
-                                if time < trsync_ticks {
-                                    trsync_ticks = time;
-                                }
+                            if t.can_trigger
+                                && let Some(oid) = t.oid
+                            {
+                                trsync_ticks = min(trsync_ticks, t.process_trsync(oid));
                             }
                         }
                         // Pump USB

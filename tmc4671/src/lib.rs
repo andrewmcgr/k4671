@@ -39,6 +39,7 @@ pub trait TimeIterator {
     fn next(&mut self) -> Instant;
     fn advance(&mut self) -> Instant;
     fn advance_to(&mut self, t: Instant) -> Instant;
+    async fn wait_next(&mut self) -> Instant;
 }
 
 #[derive(Debug, defmt::Format)]
@@ -51,7 +52,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(5000),
+            advance: Duration::from_hz(500),
         }
     }
 
@@ -82,13 +83,17 @@ impl TimeIterator for TMCTimeIterator {
     }
 
     fn next(&mut self) -> Instant {
-        loop {
-            if self.next >= Instant::now() {
-                return self.next;
-            } else {
-                self.advance();
-            }
+        if self.next >= Instant::now() {
+            self.next
+        } else {
+            self.advance()
         }
+    }
+
+    async fn wait_next(&mut self) -> Instant {
+        let n = self.next();
+        Timer::at(n).await;
+        n
     }
 }
 
@@ -1045,6 +1050,7 @@ where
                         debug!("TMC Command {}", cmd);
                         self.enable_motor().await.ok();
                         self.set_motion_mode(MotionMode::PositionMode).await.ok();
+                        ticker.reset();
                     }
                     TMCCommand::Disable => {
                         debug!("TMC Command {}", cmd);
@@ -1072,8 +1078,7 @@ where
                     }
                 }
             }
-            let ticks = ticker.next();
-            Timer::at(ticks).await
+            ticker.wait_next().await;
         }
     }
 }
