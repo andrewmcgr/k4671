@@ -1,7 +1,7 @@
 use core::cmp::min;
 use core::sync::atomic::AtomicBool;
 
-use crate::{KLIPPER_TRANSPORT, LED_STATE};
+use crate::{KLIPPER_TRANSPORT, LED_STATE, commands};
 use crate::{LedState, USB_DOORBELL};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
@@ -150,7 +150,7 @@ impl UsbAnchor {
 
             let move_period = Duration::from_hz(2500);
 
-            let mut move_ticks = Instant::now() + move_period;
+            // let mut move_ticks = Instant::now() + move_period;
 
             loop {
                 let res = select5(
@@ -206,17 +206,17 @@ impl UsbAnchor {
                     }
                     // Move ticker
                     Either5::Third(_) => {
-                        move_ticks = Instant::MAX;
+                        // move_ticks = Instant::MAX;
                         for stepper in state.steppers.iter_mut() {
-                            if let (next_time, Some(cmd)) =
+                            if let (_next_time, Some(cmd)) =
                                 crate::process_moves(stepper, Instant::now() + move_period)
                             {
                                 // debug!("Sending TMC command {:?}", cmd);
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
                                 tmc_sender.enqueue(cmd).ok();
                                 info!("TMC Cmd enqueued");
-                                let t = next_time.unwrap_or_else(|| Instant::now() + move_period);
-                                move_ticks = min(move_ticks, t);
+                                // let t = next_time.unwrap_or_else(|| Instant::now() + move_period);
+                                // move_ticks = min(move_ticks, t);
                             }
                         }
                     }
@@ -249,6 +249,7 @@ impl UsbAnchor {
             // LED_STATE.signal(Connecting);
             // let _ = select(out_fut(), reciever_fut()).await;
             let _ = reciever_fut().await;
+            commands::reset();
 
             // LED_STATE.signal(Error);
             Timer::after_millis(900).await;

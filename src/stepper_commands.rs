@@ -24,6 +24,7 @@ pub fn config_stepper(
             continue;
         } else {
             context.steppers_by_oid.insert(oid, i).ok();
+            context.steppers[i].stepper_oid = Some(oid);
             break;
         }
     }

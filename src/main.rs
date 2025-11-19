@@ -3,6 +3,7 @@
 #![feature(likely_unlikely)]
 #![feature(type_alias_impl_trait)]
 #![feature(unsafe_cell_access)]
+#![feature(stmt_expr_attributes)]
 
 use core::cell::UnsafeCell;
 use core::cmp::min;
@@ -329,6 +330,7 @@ async fn usb_comms(r: UsbResources, mut usb_out_consumer: Consumer<'static, Vec<
     let mut anchor = usb_anchor::UsbAnchor::new();
     let anchor_fut = anchor.run(&mut state, &in_pipe, &mut usb_out_consumer, driver);
     anchor_fut.await;
+    commands::reset();
 }
 
 #[embassy_executor::task]

@@ -325,6 +325,8 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                             callbacks,
                         );
                         self.callback_state.incomplete = false;
+                        // Can be used on the next iteration, modifies time iterator as well
+                        #[expect(unused_assignments)]
                         next_time = self.target_time.advance();
                         *cmd = new_cmd;
                         break;
