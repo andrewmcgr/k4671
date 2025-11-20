@@ -172,6 +172,7 @@ pub trait Callbacks {
 
 #[derive(Debug)]
 pub struct EmulatedStepper<T, const N: usize> {
+    pub index: usize,
     queue: heapless::Deque<Move, N>,
     pub target_queue: TargetQueue,
     current_move: Option<Move>,
@@ -238,8 +239,9 @@ impl CallbackState {
 }
 
 impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
-    pub fn new(target_time: T) -> Self {
+    pub fn new(index: usize, target_time: T) -> Self {
         Self {
+            index: index,
             queue: Deque::new(),
             target_queue: TargetQueue::new(),
             stepper_oid: None,
@@ -364,7 +366,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.queue.clear();
         self.target_queue.clear();
         self.current_move = None;
-        TMC_CMD.enqueue(TMCCommand::Stop).ok();
+        TMC_CMD[self.index].enqueue(TMCCommand::Stop).ok();
     }
 
     pub fn set_next_dir(&mut self, dir: Direction) {

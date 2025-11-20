@@ -78,7 +78,7 @@ assign_resources! {
         enable: PE7,
         flag: PE8,
         brake: PE10,
-    }
+    },
     usb: UsbResources {
         otg: USB_OTG_FS,
         dplus: PA12,
@@ -210,7 +210,9 @@ impl State {
     pub fn new() -> Self {
         Self {
             config_crc: None,
-            steppers: [EmulatedStepper::new(tmc4671::TMCTimeIterator::new()); NUM_STEPPERS],
+            steppers: core::array::from_fn(|i| {
+                EmulatedStepper::new(i, tmc4671::TMCTimeIterator::new())
+            }),
             steppers_by_oid: LinearMap::new(),
             steppers_by_enable_oid: LinearMap::new(),
             trsync_by_oid: LinearMap::new(),
@@ -250,7 +252,7 @@ impl TransportOutput for BufferTransportOutput {
 
 pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput;
 
-pub static TMC_CMD: tmc4671::TMCCommandChannel = tmc4671::TMCCommandChannel::new();
+pub static TMC_CMD: [tmc4671::TMCCommandChannel; NUM_STEPPERS] = [tmc4671::TMCCommandChannel::new(); NUM_STEPPERS];
 
 fn process_moves(
     stepper: &mut EmulatedStepper,
@@ -330,11 +332,12 @@ async fn usb_comms(r: UsbResources, mut usb_out_consumer: Consumer<'static, Vec<
     let mut anchor = usb_anchor::UsbAnchor::new();
     let anchor_fut = anchor.run(&mut state, &in_pipe, &mut usb_out_consumer, driver);
     anchor_fut.await;
+    // If that ever returns, reset the chip
     commands::reset();
 }
 
-#[embassy_executor::task]
-async fn tmc_task(r: TmcResources) {
+#[embassy_executor::task(pool_size = NUM_STEPPERS)]
+async fn tmc_task(index: usize, r: TmcResources) {
     info!("Hello TMC! {}", DWT::cycle_count());
 
     LED_STATE.signal(LedState::N(4));
@@ -351,7 +354,7 @@ async fn tmc_task(r: TmcResources) {
     let enable = Output::new(r.enable, Level::High, Speed::VeryHigh);
     let brake = Output::new(r.brake, Level::High, Speed::VeryHigh);
     let spi_dev = SpiDevice::new(&spi_bus, cs);
-    let mut tmc = tmc4671::TMC4671Async::new_spi(spi_dev, &TMC_CMD, enable, brake);
+    let mut tmc = tmc4671::TMC4671Async::new_spi(spi_dev, &TMC_CMD[index], enable, brake);
 
     let cfg = TMC4671Config::builder();
     match tmc.init(cfg.build()).await {
@@ -503,7 +506,7 @@ fn main() -> ! {
     // Medium-priority executor: UART5, priority level 7
     interrupt::UART5.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::UART5);
-    spawner.spawn(tmc_task(r.tmc).expect("Spawn failure"));
+    spawner.spawn(tmc_task(0, r.tmc).expect("Spawn failure"));
 
     /*
     High-priority executor: UART4, priority level 6

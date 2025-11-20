@@ -213,7 +213,7 @@ impl UsbAnchor {
                             {
                                 // debug!("Sending TMC command {:?}", cmd);
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
-                                tmc_sender.enqueue(cmd).ok();
+                                tmc_sender[stepper.index].enqueue(cmd).ok();
                                 info!("TMC Cmd enqueued");
                                 // let t = next_time.unwrap_or_else(|| Instant::now() + move_period);
                                 // move_ticks = min(move_ticks, t);
@@ -249,31 +249,11 @@ impl UsbAnchor {
             // LED_STATE.signal(Connecting);
             // let _ = select(out_fut(), reciever_fut()).await;
             let _ = reciever_fut().await;
-            commands::reset();
 
             // LED_STATE.signal(Error);
             Timer::after_millis(900).await;
+            commands::reset();
         }
     }
 }
 
-/// A writer that writes to the USB buffer.
-#[allow(dead_code)]
-pub struct PipeWriter<'d, const N: usize>(&'d Pipe<CS, N>);
-
-impl<'d, const N: usize> core::fmt::Write for PipeWriter<'d, N> {
-    fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
-        // The Pipe is implemented in such way that we cannot
-        // write across the wraparound discontinuity.
-        let b = s.as_bytes();
-        if let Ok(n) = self.0.try_write(b) {
-            if n < b.len() {
-                // We wrote some data but not all, attempt again
-                // as the reason might be a wraparound in the
-                // ring buffer, which resolves on second attempt.
-                let _ = self.0.try_write(&b[n..]);
-            }
-        }
-        Ok(())
-    }
-}
