@@ -53,7 +53,7 @@ impl TMCTimeIterator {
     pub fn new() -> TMCTimeIterator {
         Self {
             next: Instant::now(),
-            advance: Duration::from_hz(25000),
+            advance: Duration::from_hz(20000),
         }
     }
 
@@ -939,7 +939,7 @@ where
         let _ = self.enable_pin.set_high();
         let mut c = 0;
         for _ in 0..60 {
-            Timer::after(Duration::from_millis(2)).await;
+            Timer::after(Duration::from_millis(20)).await;
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             trace!(
                 "TMC Alignment Currents: Iux {}, Iwy {}, Iv {}",
