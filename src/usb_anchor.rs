@@ -1,7 +1,8 @@
 use core::cmp::min;
 use core::sync::atomic::AtomicBool;
 
-use crate::{KLIPPER_TRANSPORT, LED_STATE, commands};
+use crate::commands::reset;
+use crate::{KLIPPER_TRANSPORT, LED_STATE};
 use crate::{LedState, USB_DOORBELL};
 use anchor::{FifoBuffer, InputBuffer, SliceInputBuffer};
 use defmt::*;
@@ -111,6 +112,7 @@ impl UsbAnchor {
         let class_fut =
             self.run_anchor_class(in_pipe, out_pipe, &mut sender, &mut receiver, &mut control);
         join(run_fut, class_fut).await;
+        reset();
     }
 
     async fn run_anchor_class<'d, D>(
@@ -146,11 +148,22 @@ impl UsbAnchor {
             let mut rx_buf: RxBuf = RxBuf::new();
             ANCHOR_RX_CONNECTED.store(false, core::sync::atomic::Ordering::Relaxed);
             receiver.wait_connection().await;
+            sender.wait_connection().await;
             ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
-            let move_period = Duration::from_hz(2500);
+            let move_period = Duration::from_hz(500);
 
             // let mut move_ticks = Instant::now() + move_period;
+
+            let mut pump_usb = async || -> Result<(), Disconnected> {
+                Ok(while let Some(v) = out_pipe.dequeue() {
+                    sender.write(&v).await?;
+                    if v.len() == MAX_PACKET_SIZE as usize {
+                        // USB full packet, send another to flush
+                        sender.write_packet(&[]).await?;
+                    }
+                })
+            };
 
             loop {
                 let res = select5(
@@ -162,10 +175,6 @@ impl UsbAnchor {
                     USB_DOORBELL.wait(),
                 )
                 .await;
-                match &res {
-                    Either5::Third(_) => {}
-                    _ => info!("Anchor event {}", defmt::Debug2Format(&res)),
-                }
 
                 match res {
                     // USB disconnect
@@ -184,14 +193,7 @@ impl UsbAnchor {
                                 rx_buf.pop(consumed);
                             }
                         }
-                        // Pump USB
-                        while let Some(v) = out_pipe.dequeue() {
-                            sender.write(&v).await?;
-                            if v.len() == MAX_PACKET_SIZE as usize {
-                                // USB full packet, send another to flush
-                                sender.write_packet(&[]).await?;
-                            }
-                        }
+                        pump_usb().await?;
                         // Have trsync check if it needs to do something
                         trsync_ticks = Instant::MIN;
                     }
@@ -232,16 +234,10 @@ impl UsbAnchor {
                                 trsync_ticks = min(trsync_ticks, t.process_trsync(oid));
                             }
                         }
-                        // Pump USB
-                        while let Some(v) = out_pipe.dequeue() {
-                            sender.write_packet(&v).await?;
-                            if v.len() == MAX_PACKET_SIZE as usize {
-                                // USB full packet, send another to flush
-                                sender.write_packet(&[]).await?;
-                            }
-                        }
+                        pump_usb().await?;
                     }
                 };
+                pump_usb().await?;
             }
         };
 
@@ -252,8 +248,6 @@ impl UsbAnchor {
 
             // LED_STATE.signal(Error);
             Timer::after_millis(900).await;
-            commands::reset();
         }
     }
 }
-

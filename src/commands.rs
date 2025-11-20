@@ -101,7 +101,7 @@ pub fn get_config(context: &State) {
         is_config: bool = crc.is_some(),
         crc: u32 = crc.unwrap_or(0),
         is_shutdown: bool = false,
-        move_count: u16 = 64
+        move_count: u16 = 128
     );
 }
 

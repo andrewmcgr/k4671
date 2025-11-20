@@ -9,7 +9,7 @@ use embassy_time::Instant;
 use heapless::Deque;
 use tmc4671::*;
 
-pub type TargetQueue = crate::target_queue::TargetQueue<256>;
+pub type TargetQueue = crate::target_queue::TargetQueue<512>;
 
 #[derive(Debug, defmt::Format, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Direction {
