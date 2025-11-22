@@ -39,9 +39,7 @@ mod stepper;
 mod stepper_commands;
 mod target_queue;
 mod usb_anchor;
-use crate::commands::{
-    CLOCK_FREQ, now_clock32, ticks_to_duration,
-};
+use crate::commands::{CLOCK_FREQ, now_clock32, ticks_to_duration};
 use crate::leds::{LED_STATE, LedState};
 
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -133,7 +131,7 @@ impl TrSync {
     }
 
     // Only call if this trsync can trigger
-    fn process_trsync(self: &mut TrSync, oid: u8) -> Instant {
+    fn process_trsync(&mut self, oid: u8) -> Instant {
         // trsync processing
         let mut rv = Instant::MAX;
         if let Some(report_clock) = self.report_clock {
@@ -147,25 +145,25 @@ impl TrSync {
             if likely(now >= report_clock) {
                 stepper_commands::trsync_report(
                     oid,
-                    if self.can_trigger { 1 } else { 0 },
+                    self.can_trigger.into(),
                     self.trigger_reason,
                     now_clock32(),
                 );
 
                 // Timer has expired
-                if let Some(clocks) = self.report_ticks {
-                    if likely(clocks > 0) {
-                        info!(
-                            "TrSync report {} now {} ticks {}",
-                            oid,
-                            now.as_ticks(),
-                            clocks
-                        );
-                        let mut next = report_clock;
-                        next += ticks_to_duration(clocks);
-                        self.report_clock = Some(next);
-                        rv = min(rv, next);
-                    }
+                if let Some(clocks) = self.report_ticks
+                    && likely(clocks > 0)
+                {
+                    info!(
+                        "TrSync report {} now {} ticks {}",
+                        oid,
+                        now.as_ticks(),
+                        clocks
+                    );
+                    let mut next = report_clock;
+                    next += ticks_to_duration(clocks);
+                    self.report_clock = Some(next);
+                    rv = min(rv, next);
                 }
             } else {
                 rv = min(report_clock, rv);
@@ -193,7 +191,7 @@ impl TrSync {
             }
         }
         info!("TrSync done {} returns {}", oid, rv);
-        return rv;
+        rv
     }
 }
 
@@ -221,6 +219,12 @@ impl State {
     }
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub static USB_OUT_BUFFER: StaticCell<spsc::Producer<Vec<u8, 64>>> = StaticCell::new();
 static mut USB_OUT_PRODUCER: MaybeUninit<UnsafeCell<&'static mut spsc::Producer<Vec<u8, 64>>>> =
     MaybeUninit::uninit();
@@ -237,7 +241,7 @@ impl TransportOutput for BufferTransportOutput {
         f(&mut scratch);
         let output = scratch.result();
         trace!("Transport output {} bytes", output.len());
-        let _ = unsafe {
+        unsafe {
             // Safety: this should be the only reference to USB_OUT_PRODUCER after initialization.
             // And, this task is not started until after initialization.
             #[expect(static_mut_refs)]
@@ -252,7 +256,8 @@ impl TransportOutput for BufferTransportOutput {
 
 pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput;
 
-pub static TMC_CMD: [tmc4671::TMCCommandChannel; NUM_STEPPERS] = [tmc4671::TMCCommandChannel::new(); NUM_STEPPERS];
+pub static TMC_CMD: [tmc4671::TMCCommandChannel; NUM_STEPPERS] =
+    [tmc4671::TMCCommandChannel::new(); NUM_STEPPERS];
 
 fn process_moves(
     stepper: &mut EmulatedStepper,
@@ -282,14 +287,14 @@ fn process_moves(
 
     let v0 = match c1 {
         Some((t1, p1)) => {
-            (((p1 as i32) - (target_position)) as f32)
+            (((p1) - (target_position)) as f32)
                 / ((t1 - next_time).as_ticks() as f32 / (TICK_HZ as f32))
         }
         _ => 0.0,
     };
     let v1 = match (c1, c2) {
         (Some((t1, p1)), Some((t2, p2))) => {
-            (((p2 as i32) - (p1 as i32)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+            (((p2) - (p1)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
         }
         _ => 0.0,
     };
@@ -375,21 +380,21 @@ static EXECUTOR_LOW: InterruptExecutor = InterruptExecutor::new();
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(non_snake_case)]
 unsafe fn UART4() {
-    EXECUTOR_HIGH.on_interrupt()
+    EXECUTOR_HIGH.on_interrupt();
 }
 
 #[interrupt]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(non_snake_case)]
 unsafe fn UART5() {
-    EXECUTOR_MED.on_interrupt()
+    EXECUTOR_MED.on_interrupt();
 }
 
 #[interrupt]
 #[allow(unsafe_op_in_unsafe_fn)]
 #[allow(non_snake_case)]
 unsafe fn USART3() {
-    EXECUTOR_LOW.on_interrupt()
+    EXECUTOR_LOW.on_interrupt();
 }
 
 #[embassy_executor::task]
@@ -413,11 +418,11 @@ async fn stats() {
             last_sleep = sleep;
             count += 1;
             sum += usage;
-            sumsq += (usage as u64) * (usage as u64);
+            sumsq += (u64::from(usage)) * (u64::from(usage));
             if now > (last_stats.wrapping_add(CLOCK_FREQ * 5)) {
-                sumsq /= crate::commands::STATS_SUMSQ_BASE as u64;
+                sumsq /= u64::from(crate::commands::STATS_SUMSQ_BASE);
                 {
-                    klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u32::MAX as u64 {
+                    klipper_reply!(stats, count: u32, sum: u32, sumsq: u32 = if sumsq > u64::from(u32::MAX) {
                         u32::MAX
                     } else {
                         sumsq as u32

@@ -24,10 +24,10 @@ pub enum MoveQueueKind {
     Enable(bool),
 }
 impl MoveQueueKind {
-    fn into_enable(&self) -> Option<bool> {
+    const fn enable_option(self) -> Option<bool> {
         match self {
-            MoveQueueKind::Move => None,
-            MoveQueueKind::Enable(e) => Some(*e),
+            Self::Move => None,
+            Self::Enable(e) => Some(e),
         }
     }
 }
@@ -43,11 +43,11 @@ pub struct Move {
 }
 
 impl Move {
-    fn total_time(&self) -> u32 {
+    const fn total_time(&self) -> u32 {
         self.time_after_steps(self.count)
     }
 
-    fn time_after_steps(&self, steps: u16) -> u32 {
+    const fn time_after_steps(&self, steps: u16) -> u32 {
         if steps == 0 {
             return 0;
         }
@@ -56,7 +56,7 @@ impl Move {
         base.wrapping_add(accel as u64) as u32
     }
 
-    fn steps_before_time(&self, target: u32) -> u16 {
+    const fn steps_before_time(&self, target: u32) -> u16 {
         let mut l = 0;
         let mut r = self.count;
         while l <= r {
@@ -73,9 +73,9 @@ impl Move {
         l - 1
     }
 
-    fn advance(&self, steps: u16) -> Move {
+    fn advance(&self, steps: u16) -> Self {
         let steps = steps.clamp(0, self.count);
-        Move {
+        Self {
             interval: self
                 .interval
                 .wrapping_add(((self.add as i32) * (steps as i32)) as u32),
@@ -241,7 +241,7 @@ impl CallbackState {
 impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
     pub fn new(index: usize, target_time: T) -> Self {
         Self {
-            index: index,
+            index,
             queue: Deque::new(),
             target_queue: TargetQueue::new(),
             stepper_oid: None,
@@ -310,7 +310,7 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                         self.callback_state.emit(
                             instant_to_clock32(next_time),
                             self.state.position,
-                            cmd.kind.into_enable(),
+                            cmd.kind.enable_option(),
                             callbacks,
                         );
                         self.callback_state.incomplete = true;
@@ -338,10 +338,10 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
                         self.callback_state.incomplete = false;
                         return;
                     }
-                };
+                }
             }
             if cmd.count == 0 {
-                self.current_move = None
+                self.current_move = None;
             }
         }
     }

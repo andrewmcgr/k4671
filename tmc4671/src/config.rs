@@ -11,7 +11,7 @@ pub struct TMC4671Config {
     pub flux_current: f32,
     #[builder(default = 2.0)]
     pub ff_current: f32,
-    #[builder(default = 0.75)]
+    #[builder(default = 0.95)]
     pub ff_pos: f32,
     #[builder(default = 0.5)]
     pub ff_vel: f32,
@@ -95,7 +95,7 @@ pub struct TMC4671Config {
     pub pid_position_limit_high: i32,
     #[builder(default = 0x1000000)]
     pub pid_velocity_limit: u32,
-    #[builder(default = (8.0, 0.0))]
+    #[builder(default = (10.0, 0.0))]
     // #[builder(default = (2.6, 0.000277))]
     pub pid_position_p_i: (f32, f32),
     #[builder(default = (1.0, 0.0))]

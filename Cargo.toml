@@ -94,3 +94,6 @@ path = "src/main.rs"
 test = false
 doctest = false
 bench = false
+
+[lints.clippy]
+correctness = "deny"

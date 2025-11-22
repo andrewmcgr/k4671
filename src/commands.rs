@@ -36,27 +36,27 @@ pub fn clock32_to_instant(clock32: u32) -> Instant {
     Instant::from_ticks(clock32_to_clock64(clock32) / CLOCKS_PER_TICK)
 }
 
-pub fn duration_to_ticks(dur: Duration) -> u32 {
-    (dur.as_ticks() as u64 * TICK_HZ / CLOCK_FREQ_U64) as u32
+pub const fn duration_to_ticks(dur: Duration) -> u32 {
+    (dur.as_ticks() * TICK_HZ / CLOCK_FREQ_U64) as u32
 }
 
-pub fn ticks_to_duration(ticks: u32) -> Duration {
+pub const fn ticks_to_duration(ticks: u32) -> Duration {
     Duration::from_ticks(ticks as u64 / CLOCKS_PER_TICK)
 }
 
-pub fn instant_to_clock32(instant: Instant) -> u32 {
-    let ticks = instant.as_ticks() as u64;
+pub const fn instant_to_clock32(instant: Instant) -> u32 {
+    let ticks = instant.as_ticks();
     let clocks = ticks * CLOCKS_PER_TICK;
     (clocks & 0xFFFF_FFFF) as u32
 }
 
 #[allow(dead_code)]
-pub fn clock32_to_ticks(clock32: u32) -> u32 {
+pub const fn clock32_to_ticks(clock32: u32) -> u32 {
     clock32 / CLOCKS_PER_TICK as u32
 }
 
-pub fn clocki16_to_ticks(add: i16) -> i16 {
-    add as i16 / CLOCKS_PER_TICK as i16
+pub const fn clocki16_to_ticks(add: i16) -> i16 {
+    add / CLOCKS_PER_TICK as i16
 }
 
 #[klipper_constant]
@@ -130,7 +130,7 @@ const MCU: &str = "k4671_openffboard";
 pub const STATS_SUMSQ_BASE: u32 = 256;
 
 #[klipper_constant]
-const RECEIVE_WINDOW: u32 = 16;
+const RECEIVE_WINDOW: u32 = 4;
 
 #[klipper_command]
 pub fn config_spi_shutdown(_context: &mut State, _oid: u8, _spi_oid: u8, _shutdown_msg: &[u8]) {}

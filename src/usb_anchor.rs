@@ -35,7 +35,7 @@ impl From<EndpointError> for Disconnected {
     fn from(val: EndpointError) -> Self {
         match val {
             EndpointError::BufferOverflow => self::panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
+            EndpointError::Disabled => Self {},
         }
     }
 }
@@ -49,9 +49,9 @@ pub struct AnchorState<'d> {
     control_buf: [u8; 64],
 }
 
-impl<'d> AnchorState<'d> {
+impl AnchorState<'_> {
     /// Create a new instance of the anchor state.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             state: State::new(),
             config_descriptor: [0; 128],
@@ -70,7 +70,7 @@ pub struct UsbAnchor {}
 
 impl UsbAnchor {
     /// Create a new anchor instance.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 
@@ -151,18 +151,19 @@ impl UsbAnchor {
             sender.wait_connection().await;
             ANCHOR_RX_CONNECTED.store(true, core::sync::atomic::Ordering::Relaxed);
 
-            let move_period = Duration::from_hz(500);
+            let move_period = Duration::from_hz(5000);
 
             // let mut move_ticks = Instant::now() + move_period;
 
             let mut pump_usb = async || -> Result<(), Disconnected> {
-                Ok(while let Some(v) = out_pipe.dequeue() {
+                while let Some(v) = out_pipe.dequeue() {
                     sender.write(&v).await?;
                     if v.len() == MAX_PACKET_SIZE as usize {
                         // USB full packet, send another to flush
                         sender.write_packet(&[]).await?;
                     }
-                })
+                }
+                Ok(())
             };
 
             loop {
@@ -195,7 +196,7 @@ impl UsbAnchor {
                         }
                         pump_usb().await?;
                         // Have trsync check if it needs to do something
-                        trsync_ticks = Instant::MIN;
+                        trsync_ticks = Instant::now() + Duration::from_micros(100);
                     }
                     // DFU request
                     Either5::Second(_) => {
@@ -209,14 +210,17 @@ impl UsbAnchor {
                     // Move ticker
                     Either5::Third(_) => {
                         // move_ticks = Instant::MAX;
-                        for stepper in state.steppers.iter_mut() {
-                            if let (_next_time, Some(cmd)) =
+                        for stepper in &mut state.steppers {
+                            while let (_next_time, Some(cmd)) =
                                 crate::process_moves(stepper, Instant::now() + move_period)
                             {
-                                // debug!("Sending TMC command {:?}", cmd);
+                                let done = matches!(cmd, tmc4671::TMCCommand::Move(_, _, _));
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
                                 tmc_sender[stepper.index].enqueue(cmd).ok();
                                 info!("TMC Cmd enqueued");
+                                if done {
+                                    break;
+                                }
                                 // let t = next_time.unwrap_or_else(|| Instant::now() + move_period);
                                 // move_ticks = min(move_ticks, t);
                             }
@@ -227,7 +231,7 @@ impl UsbAnchor {
                         LED_STATE.signal(LedState::N(2));
                         info!("Processing TrSync");
                         trsync_ticks = Instant::MAX;
-                        for t in state.trsync.iter_mut() {
+                        for t in &mut state.trsync {
                             if t.can_trigger
                                 && let Some(oid) = t.oid
                             {
@@ -236,7 +240,7 @@ impl UsbAnchor {
                         }
                         pump_usb().await?;
                     }
-                };
+                }
                 pump_usb().await?;
             }
         };

@@ -1,5 +1,7 @@
 use crate::State;
-use crate::commands::{clock32_to_clock64, clock32_to_instant, clocki16_to_ticks, now_clock32, now_clock64};
+use crate::commands::{
+    clock32_to_clock64, clock32_to_instant, clocki16_to_ticks, now_clock32, now_clock64,
+};
 use crate::stepper::Direction;
 
 use anchor::*;
@@ -22,11 +24,10 @@ pub fn config_stepper(
     for i in 0..context.steppers.len() {
         if context.steppers[i].stepper_oid.is_some() {
             continue;
-        } else {
-            context.steppers_by_oid.insert(oid, i).ok();
-            context.steppers[i].stepper_oid = Some(oid);
-            break;
         }
+        context.steppers_by_oid.insert(oid, i).ok();
+        context.steppers[i].stepper_oid = Some(oid);
+        break;
     }
 }
 
@@ -68,28 +69,26 @@ pub fn reset_step_clock(context: &mut State, oid: u8, clock: u32) {
 }
 
 #[klipper_command]
-pub fn stepper_get_position(context: &mut State, oid: u8) {
+pub fn stepper_get_position(context: &State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get position {}", oid);
         let pos = context.steppers[*i].get_position();
         info!("Stepper position responds {}", pos);
-        klipper_reply!(stepper_position, oid: u8, pos: i32)
+        klipper_reply!(stepper_position, oid: u8, pos: i32);
     } else {
         warn!("No OID match");
-        return;
     }
 }
 
 #[klipper_command]
-pub fn stepper_get_commanded_position(context: &mut State, oid: u8) {
+pub fn stepper_get_commanded_position(context: &State, oid: u8) {
     if let Some(i) = context.steppers_by_oid.get(&oid) {
         debug!("Stepper get commanded position {}", oid);
         let pos = context.steppers[*i].get_commanded_position();
         info!("Stepper commanded position responds {}", pos);
-        klipper_reply!(stepper_commanded_position, oid: u8, pos: i32)
+        klipper_reply!(stepper_commanded_position, oid: u8, pos: i32);
     } else {
         warn!("No OID match");
-        return;
     }
 }
 
@@ -135,7 +134,6 @@ pub fn update_digital_out(context: &mut State, oid: u8, value: u8) {
         context.steppers[*i].set_enabled(now_clock32(), enable);
     } else {
         warn!("No OID match");
-        return;
     }
 }
 
@@ -154,11 +152,13 @@ klipper_enumeration! {
 #[klipper_command]
 pub fn stepper_stop_on_trigger(context: &mut State, oid: u8, trsync_oid: u8) {
     info!("Stepper stop on trigger {} {}", oid, trsync_oid);
-    if let Some(i) = context.trsync_by_oid.get(&trsync_oid) {
-        if let Some(t) = context.trsync.get_mut(*i) {
-            info!("Stepper {} registered for TrSync {}", oid, trsync_oid);
-            t.stepper_oids.push(oid).ok();
-        }
+    if let Some(t) = context
+        .trsync_by_oid
+        .get(&trsync_oid)
+        .and_then(|i| context.trsync.get_mut(*i))
+    {
+        info!("Stepper {} registered for TrSync {}", oid, trsync_oid);
+        t.stepper_oids.push(oid).ok();
     }
 }
 
@@ -187,30 +187,34 @@ pub fn trsync_start(
         "TrSync start {} {} {} {}",
         oid, report_clock, report_ticks, expire_reason
     );
-    if let Some(i) = context.trsync_by_oid.get(&oid) {
-        if let Some(t) = context.trsync.get_mut(*i) {
-            info!("TrSync starting for {}", oid);
-            t.report_ticks = Some(report_ticks);
-            t.report_clock = if report_ticks != 0 {
-                Some(clock32_to_instant(report_clock))
-            } else {
-                None
-            };
-            t.trigger_reason = 0;
-            t.can_trigger = true;
-            t.expire_reason = expire_reason;
-            t.timeout_clock = None;
+    if let Some(t) = context
+        .trsync_by_oid
+        .get(&oid)
+        .and_then(|i| context.trsync.get_mut(*i))
+    {
+        info!("TrSync starting for {}", oid);
+        t.report_ticks = Some(report_ticks);
+        t.report_clock = if report_ticks != 0 {
+            Some(clock32_to_instant(report_clock))
+        } else {
+            None
         };
+        t.trigger_reason = 0;
+        t.can_trigger = true;
+        t.expire_reason = expire_reason;
+        t.timeout_clock = None;
     }
 }
 
 #[klipper_command]
 pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
     info!("TrSync set timeout {} {}", oid, clock);
-    if let Some(i) = context.trsync_by_oid.get(&oid) {
-        if let Some(t) = context.trsync.get_mut(*i) {
-            t.timeout_clock = Some(clock32_to_instant(clock));
-        }
+    if let Some(t) = context
+        .trsync_by_oid
+        .get(&oid)
+        .and_then(|i| context.trsync.get_mut(*i))
+    {
+        t.timeout_clock = Some(clock32_to_instant(clock));
     }
 }
 
@@ -218,23 +222,25 @@ pub fn trsync_set_timeout(context: &mut State, oid: u8, clock: u32) {
 pub fn trsync_trigger(context: &mut State, oid: u8, reason: u8) {
     info!("TrSync trigger {} {}", oid, reason);
 
-    if let Some(i) = context.trsync_by_oid.get(&oid) {
-        if let Some(t) = context.trsync.get_mut(*i) {
-            for i in t.stepper_oids.drain(..) {
-                if let Some(si) = context.steppers_by_oid.get(&i) {
-                    info!("Stopping stepper {} for TrSync {}", i, oid);
-                    context.steppers[*si].stop();
-                }
+    if let Some(t) = context
+        .trsync_by_oid
+        .get(&oid)
+        .and_then(|i| context.trsync.get_mut(*i))
+    {
+        for i in t.stepper_oids.drain(..) {
+            if let Some(si) = context.steppers_by_oid.get(&i) {
+                info!("Stopping stepper {} for TrSync {}", i, oid);
+                context.steppers[*si].stop();
             }
-            if t.can_trigger {
-                t.trigger_reason = reason;
-                t.can_trigger = false;
-            }
-            t.timeout_clock = None;
-            t.report_clock = None;
-            t.report_ticks = None;
-            trsync_report(oid, 0, reason, 0);
         }
+        if t.can_trigger {
+            t.trigger_reason = reason;
+            t.can_trigger = false;
+        }
+        t.timeout_clock = None;
+        t.report_clock = None;
+        t.report_ticks = None;
+        trsync_report(oid, 0, reason, 0);
     }
 }
 

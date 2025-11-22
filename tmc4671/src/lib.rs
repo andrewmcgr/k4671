@@ -939,7 +939,7 @@ where
         let _ = self.enable_pin.set_high();
         let mut c = 0;
         for _ in 0..60 {
-            Timer::after(Duration::from_millis(20)).await;
+            Timer::after(Duration::from_millis(40)).await;
             let (iux, iwy, iv) = self.get_adc_currents().await.unwrap_or((0, 0, 0));
             trace!(
                 "TMC Alignment Currents: Iux {}, Iwy {}, Iv {}",

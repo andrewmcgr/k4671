@@ -15,7 +15,7 @@ pub struct ControlOutput {
 }
 
 impl ControlOutput {
-    fn single(position: i32, time: Option<Instant>) -> Self {
+    const fn single(position: i32, time: Option<Instant>) -> Self {
         Self {
             position,
             time,
@@ -24,7 +24,7 @@ impl ControlOutput {
             enable: None,
         }
     }
-    fn enable(enable: bool, time: Option<Instant>) -> Self {
+    const fn enable(enable: bool, time: Option<Instant>) -> Self {
         Self {
             position: 0,
             time,
@@ -48,7 +48,7 @@ impl<const N: usize> Default for TargetQueue<N> {
 }
 
 impl<const N: usize> TargetQueue<N> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             queue: Deque::new(),
             last_value: 0,
@@ -83,13 +83,13 @@ impl<const N: usize> TargetQueue<N> {
         let time = instant_to_clock32(time);
 
         // Check for enable at front
-        if let Some((t, _, true, enable)) = self.queue.front() {
-            if *t <= time {
-                let enable = *enable;
-                debug!("TargetQueue get_for_control: emit enable {}", enable);
-                self.queue.pop_front();
-                return ControlOutput::enable(enable, Some(clock32_to_instant(time)));
-            }
+        if let Some((t, _, true, enable)) = self.queue.front()
+            && *t <= time
+        {
+            let enable = *enable;
+            debug!("TargetQueue get_for_control: emit enable {}", enable);
+            self.queue.pop_front();
+            return ControlOutput::enable(enable, Some(clock32_to_instant(time)));
         }
 
         // Remove from front such that the next item will be read now
@@ -131,14 +131,14 @@ impl<const N: usize> TargetQueue<N> {
 impl<const N: usize> Callbacks for TargetQueue<N> {
     fn append(&mut self, time: u32, value: u32, enable: Option<bool>) {
         debug!("TargetQueue append {} {} {:?}", time, value, enable);
-        TargetQueue::append(self, time, value, enable);
+        Self::append(self, time, value, enable);
     }
 
     fn update_last(&mut self, time: u32, value: u32) {
-        TargetQueue::update_last(self, time, value)
+        Self::update_last(self, time, value);
     }
 
     fn can_append(&self) -> bool {
-        TargetQueue::can_append(self)
+        Self::can_append(self)
     }
 }
