@@ -5,7 +5,7 @@ use crate::{
     commands::{clock32_to_instant, duration_to_ticks, instant_to_clock32},
 };
 use defmt::*;
-use embassy_time::Instant;
+use embassy_time::{Instant, TICK_HZ};
 use heapless::Deque;
 use tmc4671::*;
 
@@ -366,7 +366,12 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         self.queue.clear();
         self.target_queue.clear();
         self.current_move = None;
-        TMC_CMD[self.index].enqueue(TMCCommand::Stop).ok();
+        TMC_CMD[self.index]
+            .enqueue(TMCScheduledCommand {
+                time: Instant::MIN, // Immediately
+                command: TMCCommand::Stop,
+            })
+            .ok();
     }
 
     pub fn set_next_dir(&mut self, dir: Direction) {
@@ -404,5 +409,63 @@ impl<T: tmc4671::TimeIterator, const N: usize> EmulatedStepper<T, N> {
         if self.queue.push_back(cmd).is_err() {
             warn!("ES queue full");
         }
+    }
+
+    pub fn process_moves(
+        &mut self,
+        next_time: Instant,
+    ) -> (Option<Instant>, Option<TMCCommand>) {
+        let crate::target_queue::ControlOutput {
+            position: target_position,
+            time: finish_time,
+            position_1: c1,
+            position_2: c2,
+            enable,
+        } = self.target_queue.get_for_control(next_time);
+
+        if let Some(enable) = enable {
+            let cmd = if enable {
+                TMCCommand::Enable
+            } else {
+                TMCCommand::Disable
+            };
+            trace!(
+                "Stepper enable command: {:?} at {} (next {})",
+                cmd, finish_time, next_time
+            );
+            self.advance();
+            return (finish_time, Some(cmd));
+        }
+
+        let v0 = match c1 {
+            Some((t1, p1)) => {
+                (((p1) - (target_position)) as f32)
+                    / ((t1 - next_time).as_ticks() as f32 / (TICK_HZ as f32))
+            }
+            _ => 0.0,
+        };
+        let v1 = match (c1, c2) {
+            (Some((t1, p1)), Some((t2, p2))) => {
+                (((p2) - (p1)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+            }
+            _ => 0.0,
+        };
+        let a0 = match (v0, v1, c1, c2) {
+            (v0, v1, Some((t1, _)), Some((t2, _))) => {
+                (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
+            }
+            _ => 0.0,
+        };
+        // debug!("Send move {}", target_position);
+        const STEP_MULT: i32 = 8;
+        self.advance();
+        (
+            finish_time,
+            Some(TMCCommand::Move(
+                STEP_MULT * target_position,
+                (STEP_MULT as f32 * v0) as i32,
+                (STEP_MULT as f32 * a0) as i32,
+            )),
+        )
     }
 }

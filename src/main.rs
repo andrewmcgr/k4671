@@ -25,7 +25,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, Peri, bind_interrupts, peripherals, spi, usb};
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Instant, TICK_HZ, Ticker, Timer};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use heapless::spsc;
 use heapless::{LinearMap, Vec, spsc::Consumer};
 use static_cell::{StaticCell, make_static};
@@ -258,64 +258,6 @@ pub(crate) const TRANSPORT_OUTPUT: BufferTransportOutput = BufferTransportOutput
 
 pub static TMC_CMD: [tmc4671::TMCCommandChannel; NUM_STEPPERS] =
     [tmc4671::TMCCommandChannel::new(); NUM_STEPPERS];
-
-fn process_moves(
-    stepper: &mut EmulatedStepper,
-    next_time: Instant,
-) -> (Option<Instant>, Option<tmc4671::TMCCommand>) {
-    let crate::target_queue::ControlOutput {
-        position: target_position,
-        time: finish_time,
-        position_1: c1,
-        position_2: c2,
-        enable,
-    } = stepper.target_queue.get_for_control(next_time);
-
-    if let Some(enable) = enable {
-        let cmd = if enable {
-            tmc4671::TMCCommand::Enable
-        } else {
-            tmc4671::TMCCommand::Disable
-        };
-        trace!(
-            "Stepper enable command: {:?} at {} (next {})",
-            cmd, finish_time, next_time
-        );
-        stepper.advance();
-        return (finish_time, Some(cmd));
-    }
-
-    let v0 = match c1 {
-        Some((t1, p1)) => {
-            (((p1) - (target_position)) as f32)
-                / ((t1 - next_time).as_ticks() as f32 / (TICK_HZ as f32))
-        }
-        _ => 0.0,
-    };
-    let v1 = match (c1, c2) {
-        (Some((t1, p1)), Some((t2, p2))) => {
-            (((p2) - (p1)) as f32) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
-        }
-        _ => 0.0,
-    };
-    let a0 = match (v0, v1, c1, c2) {
-        (v0, v1, Some((t1, _)), Some((t2, _))) => {
-            (v1 - v0) / ((t2 - t1).as_ticks() as f32 / (TICK_HZ as f32))
-        }
-        _ => 0.0,
-    };
-    // debug!("Send move {}", target_position);
-    const STEP_MULT: i32 = 8;
-    stepper.advance();
-    (
-        finish_time,
-        Some(tmc4671::TMCCommand::Move(
-            STEP_MULT * target_position,
-            STEP_MULT as f32 * v0,
-            STEP_MULT as f32 * a0,
-        )),
-    )
-}
 
 #[embassy_executor::task]
 async fn usb_comms(r: UsbResources, mut usb_out_consumer: Consumer<'static, Vec<u8, 64>>) {

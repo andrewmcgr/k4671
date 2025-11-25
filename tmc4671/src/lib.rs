@@ -14,13 +14,13 @@ use embassy_time::{Duration, Instant, Timer};
 pub use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 pub use embedded_hal::digital::{InputPin, OutputPin};
 pub use embedded_hal_async::spi;
-use heapless::mpmc::Queue;
+use heapless::{mpmc::Queue, sorted_linked_list::{Min, SortedLinkedList}};
 
 use core::f32::math::round;
 use fixed::types::{I4F12, I8F8};
 use paste::paste;
 
-pub type TMCCommandChannel = Queue<TMCCommand, 128>;
+pub type TMCCommandChannel = Queue<TMCScheduledCommand, 128>;
 pub type TMCCommandSender = TMCCommandChannel;
 pub type TMCCommandReceiver = TMCCommandChannel;
 
@@ -114,15 +114,23 @@ impl Saturate for f32 {
     }
 }
 
-#[derive(Debug, defmt::Format)]
+#[derive(Debug, defmt::Format, Eq, PartialEq, Copy, Clone, PartialOrd, Ord)]
 pub enum TMCCommand {
     Enable,
     Disable,
     // SpiSend([u8; 5]),
     // SpiTransfer([u8; 5]),
-    Move(i32, f32, f32),
+    Move(i32, i32, i32),
     Stop,
 }
+
+#[derive(Debug, defmt::Format, Eq, PartialEq, Copy, Clone, PartialOrd, Ord)]
+pub struct TMCScheduledCommand {
+    pub time: Instant,
+    pub command: TMCCommand,
+}
+
+type TMCCommandQueue = SortedLinkedList<TMCScheduledCommand, Min, 128>;
 
 #[derive(Debug, defmt::Format, Copy, Clone)]
 pub enum TMCCommandResponse {
@@ -162,6 +170,7 @@ where
     enabled: bool,
     /// The interface to communicate with the device
     interface: I,
+    command_queue: TMCCommandQueue,
     command_rx: &'a TMCCommandReceiver,
     // response_tx: TMCResponsePublisher<'a>,
     enable_pin: O,
@@ -211,6 +220,7 @@ where
         Self {
             enabled: false,
             interface: embedded_interfaces::spi::SpiDeviceAsync::new(spi),
+            command_queue: TMCCommandQueue::new_usize(),
             command_rx: &command_rx,
             // response_tx: response_tx,
             enable_pin: enable_pin,
@@ -1045,8 +1055,15 @@ where
             // trace!("TMC Currents: Iux {}, Iwy {}, Iv {}", iux, iwy, iv);
             // let (i0, i1) = self.get_raw_adc_currents().await.unwrap_or((0, 0));
             // trace!("TMC Raw Currents: I0 {}, I1 {}", i0, i1);
+
+            // Drain any pending commands into the command queue
             while let Some(cmd) = self.command_rx.dequeue() {
-                match cmd {
+                let _ = self.command_queue.push(cmd);
+            }
+            // Process any due commands
+            let t = Instant::now();
+            while let Some(cmd) = self.command_queue.peek() && cmd.time <= t {
+                match cmd.command {
                     TMCCommand::Enable => {
                         debug!("TMC Command {}", cmd);
                         self.enable_motor().await.ok();
@@ -1078,6 +1095,7 @@ where
                         }
                     }
                 }
+                let _ = self.command_queue.pop();
             }
             ticker.wait_next().await;
         }

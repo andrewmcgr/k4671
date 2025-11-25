@@ -19,6 +19,7 @@ use embassy_usb::{Builder, Config};
 use embedded_io_async::Write;
 use heapless::Vec;
 use heapless::spsc::Consumer;
+use tmc4671::TMCScheduledCommand;
 
 pub const ANCHOR_PIPE_SIZE: usize = 2048;
 pub type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -211,12 +212,15 @@ impl UsbAnchor {
                     Either5::Third(_) => {
                         // move_ticks = Instant::MAX;
                         for stepper in &mut state.steppers {
-                            while let (_next_time, Some(cmd)) =
-                                crate::process_moves(stepper, Instant::now() + move_period)
+                            while let (next_time, Some(cmd)) =
+                                stepper.process_moves(Instant::now() + move_period)
                             {
                                 let done = matches!(cmd, tmc4671::TMCCommand::Move(_, _, _));
                                 info!("TMC Cmd {:?}", defmt::Debug2Format(&cmd));
-                                tmc_sender[stepper.index].enqueue(cmd).ok();
+                                tmc_sender[stepper.index].enqueue(TMCScheduledCommand {
+                                    time: next_time.unwrap_or(Instant::MIN),
+                                    command: cmd,
+                                }).ok();
                                 info!("TMC Cmd enqueued");
                                 if done {
                                     break;
